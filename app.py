@@ -8,7 +8,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import brand, imagegen, metadata, playlist, settings, theme, thumbnail as T
+from soft_grind import brand, imagegen, metadata, names, playlist, settings, theme, thumbnail as T
 from soft_grind.suno import SunoClient, SunoError, download
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
@@ -84,6 +84,7 @@ if step == "music":
             minutes = c2.slider("target length (min)", 2.0, 6.0, 6.0, 0.5, help="API duration cap is 360 s")
             scenes = c3.multiselect("scene flavours (rotated)", brand.SCENES, brand.SCENES[:6])
             n_req = n_tracks // 2
+            mood_key = "groovy" if "groovy" in preset else "calm"
             st.info(f"{n_req} requests → {n_req * 2} tracks. Suno's own download cap (Pro 20/mo, Premier 60/mo) "
                     "does not apply to the API, but AceDataCloud charges per request." if not mock else
                     "mock mode: creates short test tones so you can try the rest of the app for free.")
@@ -100,7 +101,7 @@ if step == "music":
                             f"request {i + 1}/{n_req}: “{scene}” … {int(s)}s"))
                         for j, c in enumerate(clips, 1):
                             k = len(added) + 1
-                            title = f"{scene}" + (f" {chr(96 + j)}" if len(clips) > 1 else "")
+                            title = names.suggest([scene], 1, {t["title"] for t in added}, mood_key)[0]
                             p = download(c["audio_url"], tracks_dir / f"{k:02d} - {playlist.safe_name(title)}.mp3"
                                          if not c["audio_url"].endswith(".wav") else
                                          tracks_dir / f"{k:02d} - {playlist.safe_name(title)}.wav")
@@ -140,15 +141,33 @@ if step == "playlist":
                 st.error(f"{e}")
             tracks = st.session_state["tracks"]
             if tracks:
+                nv = st.session_state.get("names_v", 0)
+                with st.expander("give every track a new name"):
+                    n1, n2 = st.columns([3, 1])
+                    topic = n1.multiselect("playlist topic: the names are based on these scenes", brand.SCENES,
+                                           st.session_state.get("_names_scenes", brand.SCENES[:4]), key=f"w_names_scenes{nv}")
+                    st.session_state["_names_scenes"] = topic
+                    nmood = n2.selectbox("mood", ["calm", "groovy"])
+                    if st.button("suggest new names for all tracks"):
+                        new = names.suggest(topic, len(tracks), (), nmood)
+                        for t, nm in zip(tracks, new):
+                            t["title"] = nm
+                        playlist.rename_files(tracks, tracks_dir)
+                        st.session_state["names_v"] = nv + 1
+                        st.rerun()
+                    st.caption("Every click gives a fresh set. You can still edit any name by hand below.")
                 st.write(f"**{len(tracks)} tracks · {metadata.length_phrase(metadata.total_length([t['duration'] for t in tracks], crossfade))}**")
                 for i, t in enumerate(tracks):
                     a, b, c, d = st.columns([0.07, 0.45, 0.1, 0.38])
                     a.write(f"{i + 1:02d}")
-                    t["title"] = b.text_input("title", t["title"], key=f"t{i}{t.get('id')}", label_visibility="collapsed").lower()
+                    t["title"] = b.text_input("title", t["title"], key=f"t{st.session_state.get('names_v', 0)}_{i}{t.get('id')}", label_visibility="collapsed").lower()
                     c.write(metadata.fmt_ts(t["duration"]))
                     d.audio(t["path"])
                 if st.button("remove all tracks from this view"):
                     st.session_state["tracks"] = []; st.rerun()
+                if st.button("save these titles to the files"):
+                    playlist.rename_files(tracks, tracks_dir)
+                    st.success("saved: the titles are kept in the file names")
                 st.caption("Track titles here feed the tracklist; edit them freely. Order = playback order.")
 
 if step == "fix images":

@@ -97,3 +97,17 @@ def tracks_from_folder(folder: str | Path) -> list[dict]:
         title = re.sub(r"^\d+\s*[-_.]\s*", "", p.stem).strip().lower() or p.stem.lower()
         out.append({"id": p.stem, "title": title, "path": str(p), "duration": audio_duration(p)})
     return out
+
+
+def rename_files(tracks: list[dict], tracks_dir: Path) -> None:
+    """Rename audio files that live in the project's tracks folder to 'NN - title.ext'.
+    Files outside it (e.g. an imported folder) are never touched."""
+    tracks_dir = Path(tracks_dir).resolve()
+    for i, t in enumerate(tracks, 1):
+        src = Path(t["path"])
+        if not src.exists() or src.parent.resolve() != tracks_dir:
+            continue
+        dst = tracks_dir / f"{i:02d} - {safe_name(t['title'])}{src.suffix}"
+        if dst != src:
+            src.replace(dst)
+            t["path"] = str(dst)

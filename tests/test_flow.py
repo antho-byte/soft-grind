@@ -33,3 +33,23 @@ def test_windows_file_uri():
     # Windows turns file:///C:/Users/antho/a%20b.wav into C:\Users\antho\a b.wav (the old code kept a leading slash)
     assert nturl2path.url2pathname("/C:/Users/antho/a%20b.wav") == "C:\\Users\\antho\\a b.wav"
     assert str(uri_to_path("file:///tmp/a%20b.wav")) == "/tmp/a b.wav"
+
+
+def test_names_unique_and_on_topic():
+    from soft_grind import names
+    scenes = ["rainy window", "poolside sunset", "open laptop", "night shift"]
+    out = names.suggest(scenes, 20, taken={"window seat rain"}, mood="calm", seed=1)
+    assert len(out) == len(set(out)) == 20 and "window seat rain" not in out
+    assert all(n == n.lower() and 1 <= len(n.split()) <= 5 and not n.endswith((" a", " b")) for n in out)
+    assert out[0] in names.POOLS["rainy window"] and out[1] in names.POOLS["poolside sunset"]   # first names follow the scenes
+    big = names.suggest(["rainy window"], 150, mood="groovy")                                      # never runs out, never repeats
+    assert len(set(big)) == 150
+
+def test_rename_files_only_inside_project_folder():
+    import tempfile
+    d = Path(tempfile.mkdtemp()); (d / "tracks").mkdir(); (d / "outside").mkdir()
+    a = d / "tracks" / "01 - old.mp3"; b = d / "outside" / "x.mp3"; a.write_bytes(b"1"); b.write_bytes(b"2")
+    ts = [{"title": "soft landing", "path": str(a)}, {"title": "other", "path": str(b)}]
+    playlist.rename_files(ts, d / "tracks")
+    assert (d / "tracks" / "01 - soft landing.mp3").exists() and not a.exists() and b.exists()
+    assert ts[0]["path"].endswith("01 - soft landing.mp3")
