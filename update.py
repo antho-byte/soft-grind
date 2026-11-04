@@ -19,7 +19,7 @@ API = os.getenv("SOFTGRIND_UPDATE_API", "https://api.github.com").rstrip("/")
 DL = os.getenv("SOFTGRIND_UPDATE_DL", "https://github.com").rstrip("/")
 HERE = Path(__file__).resolve().parent
 VERSION_FILE = HERE / ".version"
-CODE = ["app.py", "update.py", "requirements.txt", "README.md", "soft_grind", "fonts", "tests"]  # start files stay
+CODE = ["app.py", "update.py", "requirements.txt", "README.md", "soft_grind", "fonts", "tests", ".streamlit"]  # start files stay
 
 
 def _get(url: str, accept: str = "") -> bytes:
@@ -34,7 +34,7 @@ def update() -> str:
     except Exception as e:
         return f"update check skipped ({e.__class__.__name__}): starting the version you have."
     current = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else ""
-    if latest == current:
+    if latest == current and all((HERE / n).exists() for n in CODE):
         return "already up to date."
     try:
         data = _get(f"{DL}/{REPO}/archive/refs/heads/{BRANCH}.zip")
