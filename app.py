@@ -88,6 +88,7 @@ if step == "music":
             st.info(f"{n_req} requests → {n_req * 2} tracks. Suno's own download cap (Pro 20/mo, Premier 60/mo) "
                     "does not apply to the API, but AceDataCloud charges per request." if not mock else
                     "mock mode: creates short test tones so you can try the rest of the app for free.")
+            name_style = st.selectbox("track names", names.STYLES, help="mix = english and romanised japanese, e.g. “drizzle study” and “mado no ame”")
             if st.button("generate", type="primary", disabled=not (mock or token)):
                 client = SunoClient(token, mock=mock, mock_dir=pdir)
                 bar, status = st.progress(0.0), st.empty()
@@ -101,7 +102,7 @@ if step == "music":
                             f"request {i + 1}/{n_req}: “{scene}” … {int(s)}s"))
                         for j, c in enumerate(clips, 1):
                             k = len(added) + 1
-                            title = names.suggest([scene], 1, {t["title"] for t in added}, mood_key)[0]
+                            title = names.suggest([scene], 1, {t["title"] for t in added}, mood_key, style=name_style)[0]
                             p = download(c["audio_url"], tracks_dir / f"{k:02d} - {playlist.safe_name(title)}.mp3"
                                          if not c["audio_url"].endswith(".wav") else
                                          tracks_dir / f"{k:02d} - {playlist.safe_name(title)}.wav")
@@ -143,13 +144,14 @@ if step == "playlist":
             if tracks:
                 nv = st.session_state.get("names_v", 0)
                 with st.expander("give every track a new name"):
-                    n1, n2 = st.columns([3, 1])
+                    n1, n2, n3 = st.columns([3, 1, 1])
                     topic = n1.multiselect("playlist topic: the names are based on these scenes", brand.SCENES,
                                            st.session_state.get("_names_scenes", brand.SCENES[:4]), key=f"w_names_scenes{nv}")
                     st.session_state["_names_scenes"] = topic
                     nmood = n2.selectbox("mood", ["calm", "groovy"])
+                    nstyle = n3.selectbox("style", names.STYLES)
                     if st.button("suggest new names for all tracks"):
-                        new = names.suggest(topic, len(tracks), (), nmood)
+                        new = names.suggest(topic, len(tracks), (), nmood, style=nstyle)
                         for t, nm in zip(tracks, new):
                             t["title"] = nm
                         playlist.rename_files(tracks, tracks_dir)

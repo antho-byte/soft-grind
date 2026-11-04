@@ -38,7 +38,7 @@ def test_windows_file_uri():
 def test_names_unique_and_on_topic():
     from soft_grind import names
     scenes = ["rainy window", "poolside sunset", "open laptop", "night shift"]
-    out = names.suggest(scenes, 20, taken={"window seat rain"}, mood="calm", seed=1)
+    out = names.suggest(scenes, 20, taken={"window seat rain"}, mood="calm", seed=1, style="english")
     assert len(out) == len(set(out)) == 20 and "window seat rain" not in out
     assert all(n == n.lower() and 1 <= len(n.split()) <= 5 and not n.endswith((" a", " b")) for n in out)
     assert out[0] in names.POOLS["rainy window"] and out[1] in names.POOLS["poolside sunset"]   # first names follow the scenes
@@ -53,3 +53,17 @@ def test_rename_files_only_inside_project_folder():
     playlist.rename_files(ts, d / "tracks")
     assert (d / "tracks" / "01 - soft landing.mp3").exists() and not a.exists() and b.exists()
     assert ts[0]["path"].endswith("01 - soft landing.mp3")
+
+
+def test_name_styles():
+    from soft_grind import names
+    scenes = ["rainy window", "poolside sunset", "open laptop", "night shift"]
+    jp_all = {n for v in names.JP_POOLS.values() for n in v} | {n for v in names.JP_GENERIC.values() for n in v}
+    en_all = {n for v in names.POOLS.values() for n in v} | {n for v in names.GENERIC.values() for n in v}
+    mix = names.suggest(scenes, 20, seed=3, style="mix")
+    assert len(set(mix)) == 20 and any(n in jp_all for n in mix) and any(n in en_all for n in mix)
+    assert not any(n in jp_all for n in names.suggest(scenes, 20, seed=3, style="english"))
+    jp = names.suggest(scenes, 40, seed=3, style="japanese")                     # japanese only, even after its pools run out
+    assert len(set(jp)) == 40 and not any(n in en_all for n in jp)
+    assert all(n == n.lower() and n.replace(" ", "").isalnum() for n in mix + jp)
+    assert names.suggest(["rainy window"], 1, taken={"x"}, style="nonsense")        # unknown style falls back to mix
