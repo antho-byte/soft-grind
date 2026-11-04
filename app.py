@@ -13,7 +13,7 @@ from soft_grind.suno import SunoClient, SunoError, download
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
-PROJECTS = settings.PROJECTS_DIR
+PROJECTS = settings.projects_dir()
 SAVED = settings.load_keys()
 
 STEPS = ["music", "playlist", "fix images", "thumbnail", "youtube"]
@@ -60,7 +60,25 @@ with st.sidebar:
             settings.save_keys(token, img_token)
             st.success("saved: you won't need to paste them again")
         crossfade = st.number_input("crossfade (s)", 0.0, 10.0, metadata.CROSSFADE, 0.5)
-        st.caption(f"your keys and projects live in `{settings.DATA_DIR}`, outside the app folder")
+        st.caption("where your projects are saved")
+        folder_in = st.text_input("projects folder", str(PROJECTS),
+                                  help="Tracks, thumbnails and upload.txt of every project. Choosing the app's own folder uses its “projects” subfolder.")
+        if st.button("use this folder"):
+            newp = settings.save_projects_dir(folder_in)
+            st.session_state["tracks"] = []
+            st.toast(f"projects now live in {newp}")
+            st.rerun()
+        old_dir = settings.DEFAULT_PROJECTS
+        if old_dir.is_dir() and old_dir.resolve() != PROJECTS.resolve() and any(p.is_dir() for p in old_dir.iterdir()):
+            st.caption(f"projects found in the old folder: `{old_dir}`")
+            if st.button("move my existing projects here"):
+                moved, skipped = settings.move_projects(old_dir, PROJECTS)
+                st.session_state["tracks"] = []
+                if moved:
+                    st.success("moved: " + ", ".join(moved))
+                if skipped:
+                    st.warning("left in place (already has files in the new folder): " + ", ".join(skipped))
+        st.caption(f"your keys live in `{settings.DATA_DIR}`, outside the app folder")
 
 st.session_state.setdefault("tracks", [])
 if st.session_state.pop("_reload", False) or (not st.session_state["tracks"] and tracks_dir.exists()):
