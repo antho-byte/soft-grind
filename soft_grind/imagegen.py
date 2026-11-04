@@ -20,10 +20,8 @@ BASE_URL = "https://api.acedata.cloud"
 TARGET = (1920, 1080)
 
 DEFAULT_PROMPT = (
-    "This image has a sharp photo in the centre and blurred, stretched bars on the left and right. "
-    "Replace the blurred bars with a seamless, natural extension of the scene so the whole picture "
-    "looks like one wide 16:9 photograph. Keep the centre photo's subject, colours, lighting and style "
-    "exactly as they are. Do not add any text, letters, signatures, watermarks or logos."
+    "Fill in the blurred sides so the picture matches the photo in the middle, as one wide image. "
+    "Keep the middle photo exactly as it is. No text, logos or watermarks."
 )
 
 # Request body for POST /nano-banana/images (action "edit"), per the AceDataCloud docs.
