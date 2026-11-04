@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Callable
 
 import requests
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 BASE_URL = "https://api.acedata.cloud"
 
@@ -127,11 +129,16 @@ def _write_tone(path: Path, seconds: float, freq: float, rate: int = 22050) -> N
             struct.pack("<h", int(6000 * math.sin(2 * math.pi * freq * i / rate))) for i in range(n)))
 
 
+def uri_to_path(uri: str) -> Path:
+    """file:///C:/Users/x/a.wav (Windows) or file:///tmp/a.wav (Mac/Linux) -> a real local path."""
+    return Path(url2pathname(urlparse(uri).path))
+
+
 def download(url: str, dest: Path) -> Path:
     """Download (or copy, for file:// mock urls) an audio file."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     if url.startswith("file://"):
-        dest.write_bytes(Path(url[7:]).read_bytes())
+        dest.write_bytes(uri_to_path(url).read_bytes())
         return dest
     with requests.get(url, stream=True, timeout=120, headers={"user-agent": "Mozilla/5.0"}) as r:
         r.raise_for_status()

@@ -25,3 +25,11 @@ def test_flow():
     assert T.render_thumbnail(im, "hello there.").size == (1280, 720)
     assert T.render_still(im, cyber=True).size == (1920, 1080)
     assert playlist.extract_ids("https://suno.com/playlist/12345678-1234-1234-1234-123456789abc")
+
+
+def test_windows_file_uri():
+    import nturl2path
+    from soft_grind.suno import uri_to_path
+    # Windows turns file:///C:/Users/antho/a%20b.wav into C:\Users\antho\a b.wav (the old code kept a leading slash)
+    assert nturl2path.url2pathname("/C:/Users/antho/a%20b.wav") == "C:\\Users\\antho\\a b.wav"
+    assert str(uri_to_path("file:///tmp/a%20b.wav")) == "/tmp/a b.wav"
