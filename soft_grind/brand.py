@@ -67,3 +67,7 @@ CHANNEL_GUIDELINES = [
 ]
 
 DESCRIPTION_QUESTIONS = ["what are you working on tonight?", "what's the one thing you'll finish today?"]
+
+# Used to fill the "scenario" in the playlist-style title when a new video starts.
+SCENARIOS = ["studying at 2am", "working late", "on the night train", "at your desk", "finishing the deadline",
+             "reading by the window", "building something", "on a rainy sunday"]

@@ -2,29 +2,31 @@
 import io
 import json
 import os
+import random
+import time
 import zipfile
 from pathlib import Path
 
 import streamlit as st
 from PIL import Image
 
-from soft_grind import ai, brand, imagegen, metadata, names, playlist, settings, theme, thumbnail as T
-from soft_grind.suno import SunoClient, SunoError, download
+from soft_grind import ai, brand, imagegen, metadata, names, playlist, projects, settings, theme, thumbnail as T
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
 PROJECTS = settings.projects_dir()
 SAVED = settings.load_keys()
 
-STEPS = ["music", "playlist", "fix images", "thumbnail", "youtube"]
+STEPS = ["projects", "music", "playlist", "fix images", "thumbnail", "youtube"]
 TITLES = {
+    "projects": ("your videos.", "every video you made, with its cover. open one to keep going."),
     "music": ("make the music.", "pick a sound, press generate, get instrumental tracks."),
     "playlist": ("the playlist.", "pull in your tracks, check the titles and the order."),
     "fix images": ("fix the photos.", "turn vertical photos into 16:9."),
     "thumbnail": ("the cover.", "one image, one quote, one logo."),
     "youtube": ("the upload.", "title, description, tags and a pinned comment."),
 }
-st.session_state.setdefault("step", "music")
+st.session_state.setdefault("step", "projects")
 
 
 def go(step_name):
@@ -32,10 +34,58 @@ def go(step_name):
 
 
 def sticky(widget, label, key, default, **kw):
-    """A widget that remembers its value when you leave this step and come back."""
-    val = widget(label, value=st.session_state.get("_s_" + key, default), key="w_" + key, **kw)
-    st.session_state["_s_" + key] = val
+    """A widget that remembers its value when you leave this step and come back (separately for each project)."""
+    proj = st.session_state.get("project", "")
+    sk = f"_s_{proj}_{key}"
+    val = widget(label, value=st.session_state.get(sk, default), key=f"w_{proj}_{key}", **kw)
+    st.session_state[sk] = val
     return val
+
+
+def new_video():
+    """A fresh project: next free name, a new unique playlist name, nothing carried over from the last video."""
+    nm = projects.next_project_name(PROJECTS)
+    pd = PROJECTS / nm
+    pd.mkdir(parents=True, exist_ok=True)
+    taken = [p["playlist_name"] for p in projects.list_projects(PROJECTS)]
+    playlist_name = names.suggest([random.choice(brand.SCENES)], 1, taken, "calm")[0]
+    projects.set_meta(pd, created=time.time(), playlist_name=playlist_name, scenario=random.choice(brand.SCENARIOS))
+    st.session_state.update(project=nm, step="music", tracks=[], fix_results={})
+    for k in ("_style_before", "_ai_note", "_job_was_running"):
+        st.session_state.pop(k, None)
+
+
+def open_project(nm, stage_name):
+    st.session_state.update(project=nm, tracks=[], fix_results={}, step={
+        "new": "music", "making music": "music", "needs a thumbnail": "thumbnail",
+        "needs youtube text": "youtube", "ready": "youtube"}.get(stage_name, "music"))
+    st.session_state.pop("_job_was_running", None)
+
+
+def job_panel(pdir_):
+    """Live progress of the background music job. Refreshes itself while the job runs."""
+    def body():
+        job = projects.job_status(pdir_)
+        was = st.session_state.get("_job_was_running") == pdir_.name
+        if job["running"]:
+            st.session_state["_job_was_running"] = pdir_.name
+            st.progress(job["progress"], text=f"{job['done']} of {job['total']} requests · {job['message']}")
+            st.button("cancel", key="cancel_job", on_click=projects.cancel_job, args=(pdir_,))
+            return
+        if was:                                     # it just finished: refresh the whole page once (rail, track list)
+            st.session_state.pop("_job_was_running", None)
+            st.rerun()
+        if job["state"] == "done":
+            st.success("done: the tracks are in this project. Open the playlist step to check the names.")
+        elif job["state"] == "failed":
+            st.error(f"stopped: {job['error'] or 'unknown error'}. Tracks made so far are saved"
+                     + (f" ({len(job['task_ids'])} requests were started)." if job["task_ids"] else "."))
+        elif job["state"] == "cancelled":
+            st.info("cancelled. Tracks made so far are saved.")
+        elif job["state"] == "interrupted":
+            st.warning("The job stopped unexpectedly (the black window was closed, or the computer went to sleep). "
+                       "Tracks made so far are saved.")
+    st.fragment(run_every=3 if projects.job_status(pdir_)["running"] else None)(body)()
 
 
 # ---------------- sidebar: logo, project, progress rail, settings ----------------
@@ -87,15 +137,48 @@ with st.sidebar:
         st.caption(f"your keys live in `{settings.DATA_DIR}`, outside the app folder")
 
 st.session_state.setdefault("tracks", [])
-if st.session_state.pop("_reload", False) or (not st.session_state["tracks"] and tracks_dir.exists()):
-    existing = [p for p in tracks_dir.iterdir() if p.suffix.lower() in playlist.AUDIO_EXT]
-    if existing:
-        st.session_state["tracks"] = playlist.tracks_from_folder(tracks_dir)
+_files = projects.audio_files(tracks_dir)
+_inside = all(Path(t["path"]).parent.resolve() == tracks_dir.resolve() for t in st.session_state["tracks"])  # not an imported folder
+if st.session_state.pop("_reload", False) or (_inside and len(_files) != len(st.session_state["tracks"])):
+    st.session_state["tracks"] = playlist.tracks_from_folder(tracks_dir) if _files else []
 tracks = st.session_state["tracks"]
 imgs_dir = pdir / "images"
 
 step = st.session_state["step"]
-theme.page_title(f"{name} / {step}", *TITLES[step])
+theme.page_title("all videos" if step == "projects" else f"{name} / {step}", *TITLES[step])
+
+if step == "projects":
+    h1, h2 = st.columns([4, 1])
+    h2.button("new video", type="primary", on_click=new_video, use_container_width=True)
+    PILL = {"making music": "#E7E5FF", "new": "#EFEFEF", "needs a thumbnail": "#FFF0D9",
+            "needs youtube text": "#FFE4EE", "ready": "#DDF1E6"}
+
+    def grid():
+        items = projects.list_projects(PROJECTS)
+        if not items:
+            st.info("No videos yet. Press **new video** to start the first one.")
+            return
+        cols = st.columns(3)
+        for i, info in enumerate(items):
+            with cols[i % 3], st.container(key=f"card_proj_{info['name']}"):
+                if info["cover"]:
+                    st.image(str(info["cover"]), use_container_width=True)
+                else:
+                    st.markdown('<div class="sg-cover-empty">no cover yet</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="sg-proj-name">{info["name"]}</div>', unsafe_allow_html=True)
+                if info["quote"]:
+                    st.markdown(f'<div class="sg-proj-quote">{info["quote"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<span class="sg-pill" style="background:{PILL.get(info["stage"], "#EFEFEF")}">{info["stage"]}</span> '
+                            f'<span class="sg-proj-meta">{info["tracks"]} tracks · {round(info["seconds"] / 60)} min</span>',
+                            unsafe_allow_html=True)
+                if info["job"]["running"]:
+                    st.progress(info["job"]["progress"], text=f"{info['job']['done']} of {info['job']['total']} requests")
+                if st.button("open", key=f"open_{info['name']}"):
+                    open_project(info["name"], info["stage"])
+                    st.rerun()                                           # full rerun, so the page switches
+
+    running_any = any(p["job"]["running"] for p in projects.list_projects(PROJECTS))
+    st.fragment(run_every=5 if running_any else None)(grid)()
 
 if step == "music":
     with st.container(key="card_music"):
@@ -142,31 +225,20 @@ if step == "music":
                     "does not apply to the API, but AceDataCloud charges per request." if not mock else
                     "mock mode: creates short test tones so you can try the rest of the app for free.")
             name_style = st.selectbox("track names", names.STYLES, help="mix = english and romanised japanese, e.g. “drizzle study” and “mado no ame”")
-            if st.button("generate", type="primary", disabled=not (mock or token)):
-                client = SunoClient(token, mock=mock, mock_dir=pdir)
-                bar, status = st.progress(0.0), st.empty()
-                added = list(tracks)
+            job0 = projects.job_status(pdir)
+            if st.button("generate in the background", type="primary", disabled=job0["running"] or not (mock or token)):
+                spec = {"style": style, "scenes": scenes, "n_req": n_req, "minutes": minutes, "model": model,
+                        "name_style": name_style, "mood_key": mood_key, "mock": mock}
                 try:
-                    for i in range(n_req):
-                        scene = scenes[i % len(scenes)] if scenes else "soft grind"
-                        status.write(f"request {i + 1}/{n_req}: “{scene}”")
-                        tid = client.generate(f"{style}, {scene}", scene, model, int(minutes * 60), brand.NEGATIVE_TAGS)
-                        clips = client.wait(tid, on_tick=lambda s: status.write(
-                            f"request {i + 1}/{n_req}: “{scene}” … {int(s)}s"))
-                        for j, c in enumerate(clips, 1):
-                            k = len(added) + 1
-                            title = names.suggest([scene], 1, {t["title"] for t in added}, mood_key, style=name_style)[0]
-                            p = download(c["audio_url"], tracks_dir / f"{k:02d} - {playlist.safe_name(title)}.mp3"
-                                         if not c["audio_url"].endswith(".wav") else
-                                         tracks_dir / f"{k:02d} - {playlist.safe_name(title)}.wav")
-                            added.append({"id": c["id"], "title": title, "path": str(p),
-                                          "duration": playlist.audio_duration(p) or c["duration"]})
-                        bar.progress((i + 1) / n_req)
-                    st.session_state["tracks"] = added
-                    status.success(f"done: {len(added)} tracks in the project. Review them in the playlist step.")
-                except SunoError as e:
-                    status.error(f"suno error: {e}")
-                    st.session_state["tracks"] = added
+                    projects.set_meta(pdir, topic=scenes, mood=mood_key, style=style,
+                                      created=projects.meta(pdir).get("created") or time.time())
+                    projects.start_music_job(pdir, spec, token)
+                    st.rerun()
+                except RuntimeError as e:
+                    st.error(str(e))
+            st.caption("It keeps running in the background: open other steps or the projects page meanwhile. "
+                       "Keep the black window open and the computer awake.")
+            job_panel(pdir)
 
 if step == "playlist":
     with st.container(key="card_playlist"):
@@ -349,6 +421,7 @@ if step == "thumbnail":
             if b1.button("save to project", type="primary"):
                 pdir.mkdir(parents=True, exist_ok=True)
                 thumb.save(pdir / "thumbnail.png"); still.save(pdir / "still.png")
+                projects.set_meta(pdir, quote=quote)
                 st.success(f"saved thumbnail.png + still.png in {pdir}")
             b2.download_button("download both", zbuf.getvalue(), "softgrind_cover.zip", "application/zip")
     with st.expander("bulk: many images at once (thumbnails + stills + contact sheet)"):
@@ -385,8 +458,9 @@ if step == "youtube":
                 tstyle = st.radio("title format", ["quote", "playlist"], horizontal=True,
                                   format_func=lambda s: "[quote] | 80s japanese city pop to work & study to"
                                   if s == "quote" else "[playlist] you're [scenario] [emoji] 80s city pop")
-                pl = st.text_input("playlist name", "night desk", disabled=tstyle == "quote")
-                sc = st.text_input("scenario", "studying at 2am", disabled=tstyle == "quote")
+                pm = projects.meta(pdir)
+                pl = st.text_input("playlist name", pm.get("playlist_name", "night desk"), key=f"w_{name}_plname", disabled=tstyle == "quote")
+                sc = st.text_input("scenario", pm.get("scenario", "studying at 2am"), key=f"w_{name}_scen", disabled=tstyle == "quote")
                 emoji = st.text_input("emoji", "🌴", disabled=tstyle == "quote")
             with c2:
                 scene = st.text_area("scene + mood (2–3 sentences)", "a quiet desk, a warm lamp and the city glowing outside. "
@@ -397,6 +471,8 @@ if step == "youtube":
                 mood = st.selectbox("mood hashtag", list(brand.MOODS))
                 question = st.selectbox("question to viewers", brand.DESCRIPTION_QUESTIONS)
                 pinned = st.selectbox("pinned comment", brand.PINNED_COMMENTS)
+            if (pl, sc, quote_m) != (pm.get("playlist_name"), pm.get("scenario"), pm.get("quote")):
+                projects.set_meta(pdir, playlist_name=pl, scenario=sc, quote=quote_m)
             title = metadata.make_title(tstyle, quote_m, pl, sc, emoji)
             desc = metadata.make_description(quote_m, subline_m, scene, tracks, use, artist, question,
                                              brand.MOODS[mood], crossfade) if tracks else ""
@@ -427,16 +503,20 @@ mins = round(metadata.total_length([t["duration"] for t in tracks], crossfade) /
 fixed_n = len(list(imgs_dir.glob("*_16x9.png"))) if imgs_dir.exists() else 0
 cover_done = (pdir / "thumbnail.png").exists()
 yt_done = (pdir / "upload.txt").exists()
+proj_count = len(projects.list_projects(PROJECTS))
+job_now = projects.job_status(pdir)
 RAIL = {
-    "music": (n > 0, f"{n} tracks · {mins} min" if n else "no tracks yet"),
+    "projects": (False, f"{proj_count} videos" if proj_count else "start your first video"),
+    "music": (n > 0 and not job_now["running"], f"generating {job_now['done']}/{job_now['total']}" if job_now["running"]
+              else (f"{n} tracks · {mins} min" if n else "no tracks yet")),
     "playlist": (n > 0, "titles ready" if n else "after the music"),
     "fix images": (fixed_n > 0, f"{fixed_n} made 16:9" if fixed_n else "optional"),
     "thumbnail": (cover_done, "saved" if cover_done else ("in progress" if step == "thumbnail" else "not made yet")),
     "youtube": (yt_done, "upload.txt saved" if yt_done else "title, description, tags"),
 }
 with rail_slot:
-    for i, s in enumerate(STEPS, 1):
+    for i, s in enumerate(STEPS):
         done, sub = RAIL[s]
-        st.button(f"{'✓' if done else i}   {s}", key=f"step_{s}", use_container_width=True,
+        st.button(f"{'✓' if done else ('•' if i == 0 else i)}   {s}", key=f"step_{s}", use_container_width=True,
                   type="primary" if s == step else "secondary", on_click=go, args=(s,))
         st.markdown(f'<div class="sg-step-sub{" done" if done else ""}">{sub}</div>', unsafe_allow_html=True)

@@ -45,6 +45,15 @@ h1,h2,h3{font-family:'Abril Fatface',serif!important;font-weight:400!important;c
 /* cards */
 [class*="st-key-card"]{background:#fff;border-radius:22px;padding:26px 28px!important;box-shadow:0 10px 30px rgba(20,24,82,.07);margin-bottom:18px}
 
+/* projects overview */
+[class*="st-key-card_proj"]{padding:14px!important;border-radius:20px}
+.sg-cover-empty{height:150px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#4A4E7C;font-size:13px;
+  background:linear-gradient(135deg,#E8E6FA,#FFE4EE 55%,#FFF0D9)}
+.sg-proj-name{font-weight:700;font-size:16px;margin-top:6px;color:var(--indigo)}
+.sg-proj-quote{font-family:'Abril Fatface',serif;font-size:22px;line-height:1.1;margin:2px 0 6px;color:var(--indigo)}
+.sg-pill{display:inline-block;font-size:12.5px;font-weight:600;padding:3px 11px;border-radius:999px;color:var(--indigo)}
+.sg-proj-meta{font-size:12.5px;color:var(--muted)}
+
 /* buttons */
 .stApp button[data-testid="stBaseButton-secondary"],.stApp [data-testid="stDownloadButton"] button{border-radius:999px!important;border:1.5px solid rgba(20,24,82,.2)!important;background:#fff!important;color:var(--indigo)!important;font-weight:600!important}
 .stApp button[data-testid="stBaseButton-primary"]{border-radius:999px!important;border:0!important;background:var(--coral)!important;color:var(--indigo)!important;font-weight:700!important}
