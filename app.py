@@ -8,7 +8,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import brand, imagegen, metadata, names, playlist, settings, theme, thumbnail as T
+from soft_grind import ai, brand, imagegen, metadata, names, playlist, settings, theme, thumbnail as T
 from soft_grind.suno import SunoClient, SunoError, download
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
@@ -56,8 +56,14 @@ with st.sidebar:
         img_token = st.text_input("image API token", os.getenv("ACEDATACLOUD_IMAGE_TOKEN") or SAVED.get("image", ""), type="password",
                                   help="A separate key (own budget cap) for the Nano Banana image models.")
         img_mock = st.checkbox("image mock mode (no API, free)", value=not img_token)
+        st.caption("AI helper (AceDataCloud chat)")
+        ai_token = st.text_input("AI helper token", os.getenv("ACEDATACLOUD_AI_TOKEN") or SAVED.get("ai", ""), type="password",
+                                 help="Its own key with its own usage limit. Used for the “improve with AI” buttons.")
+        ai_model = st.text_input("AI model", SAVED.get("ai_model") or ai.DEFAULT_MODEL,
+                                 help="Exact model name from the Chat tab at platform.acedata.cloud/models, e.g. a Claude Haiku.")
+        ai_mock = st.checkbox("AI mock mode (no API, free)", value=not ai_token)
         if st.button("save keys on this computer"):
-            settings.save_keys(token, img_token)
+            settings.save_keys(token, img_token, ai_token, ai_model)
             st.success("saved: you won't need to paste them again")
         crossfade = st.number_input("crossfade (s)", 0.0, 10.0, metadata.CROSSFADE, 0.5)
         st.caption("where your projects are saved")
@@ -96,11 +102,40 @@ if step == "music":
             c1, c2 = st.columns(2)
             preset = c1.selectbox("sound", list(brand.PRESETS))
             model = c2.selectbox("model", brand.MODELS)
-            style = st.text_area("style prompt (no artist names, suno blocks them)", brand.PRESETS[preset], height=90)
+            if st.session_state.get("_preset_seen") != preset:           # picking another sound loads its prompt
+                st.session_state["_style_keep"] = brand.PRESETS[preset]
+                st.session_state["_preset_seen"] = preset
+                st.session_state["style_v"] = st.session_state.get("style_v", 0) + 1
+            if st.session_state.pop("_improve_req", False):             # set by the button below, handled before the box is drawn
+                try:
+                    better, cost = ai.AIClient(ai_token, ai_model, mock=ai_mock).improve_music_prompt(
+                        st.session_state["_style_keep"], st.session_state.get("_scenes_hint"))
+                    st.session_state["_style_before"] = st.session_state["_style_keep"]
+                    st.session_state["_style_keep"] = better
+                    st.session_state["style_v"] += 1
+                    st.session_state["_ai_spent"] = st.session_state.get("_ai_spent", 0.0) + cost
+                    st.session_state["_ai_note"] = f"improved by AI" + (f" · {cost:.4f} credits" if cost else "")
+                except ai.AIError as e:
+                    st.session_state["_ai_note"] = f"AI helper error: {e}"
+            if st.session_state.pop("_undo_req", False) and st.session_state.get("_style_before"):
+                st.session_state["_style_keep"] = st.session_state.pop("_style_before")
+                st.session_state["style_v"] += 1
+                st.session_state["_ai_note"] = "back to your previous prompt"
+            style = st.text_area("style prompt (no artist names, suno blocks them)", st.session_state["_style_keep"],
+                                 height=110, key=f"w_style{st.session_state['style_v']}")
+            st.session_state["_style_keep"] = style
+            ai_c1, ai_c2, ai_c3 = st.columns([1.2, 1, 2.8])
+            ai_c1.button("improve with AI", on_click=lambda: st.session_state.update(_improve_req=True),
+                         disabled=not (ai_token or ai_mock), help="Rewrites your prompt so Suno gets a clearer, more specific brief.")
+            ai_c2.button("undo", on_click=lambda: st.session_state.update(_undo_req=True),
+                         disabled=not st.session_state.get("_style_before"))
+            if st.session_state.get("_ai_note"):
+                ai_c3.caption(st.session_state["_ai_note"])
             c1, c2, c3 = st.columns(3)
             n_tracks = c1.slider("tracks wanted", 2, 20, 8, 2, help="each request returns 2 tracks")
             minutes = c2.slider("target length (min)", 2.0, 6.0, 6.0, 0.5, help="API duration cap is 360 s")
             scenes = c3.multiselect("scene flavours (rotated)", brand.SCENES, brand.SCENES[:6])
+            st.session_state["_scenes_hint"] = scenes
             n_req = n_tracks // 2
             mood_key = "groovy" if "groovy" in preset else "calm"
             st.info(f"{n_req} requests → {n_req * 2} tracks. Suno's own download cap (Pro 20/mo, Premier 60/mo) "

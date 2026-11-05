@@ -7,7 +7,9 @@ def test_keys_live_outside_app_folder():
     from soft_grind import settings; importlib.reload(settings)
     assert settings.load_keys() == {}
     settings.save_keys(" abc ", "def")
-    assert settings.load_keys() == {"suno": "abc", "image": "def"}
+    assert settings.load_keys() == {"suno": "abc", "image": "def", "ai": "", "ai_model": ""}
+    settings.save_keys("a", "b", " c ", " claude-haiku-x ")
+    assert settings.load_keys()["ai"] == "c" and settings.load_keys()["ai_model"] == "claude-haiku-x"
     assert settings.KEYS_FILE.is_relative_to(os.environ["SOFTGRIND_HOME"])
     assert not str(settings.KEYS_FILE).startswith(str(Path(__file__).resolve().parent.parent))
 
