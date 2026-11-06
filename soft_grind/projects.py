@@ -10,7 +10,7 @@ import time
 from functools import lru_cache
 from pathlib import Path
 
-from . import brand, playlist
+from . import brand, headlines, playlist
 
 META, JOB, CANCEL = "project.json", "job.json", "cancel"
 STALE_AFTER = 120  # seconds without a heartbeat -> the job counts as interrupted
@@ -109,12 +109,22 @@ def create_project(root: Path) -> str:
     pd = Path(root) / nm
     pd.mkdir(parents=True, exist_ok=True)
     taken = [m for m in (meta(d).get("playlist_name") for d in project_dirs(root)) if m]
-    from . import headlines
-    used_quotes = {meta(d).get("quote", "") for d in project_dirs(root)}
+    used_quotes = recent_quotes(root, n=headlines.RECENT)
     set_meta(pd, created=time.time(), scenario=random.choice(brand.SCENARIOS),
              playlist_name=names.suggest([random.choice(brand.SCENES)], 1, taken, "calm")[0],
              quote=headlines.suggest("calm", [], used_quotes, 1)[0], quote_placeholder=True)   # replaced once an image is chosen
     return nm
+
+
+def recent_quotes(root: Path, exclude: str = "", n: int = 30) -> set[str]:
+    """Headlines of the n most recent videos (a headline may be reused after that many). `exclude` = a project to leave out."""
+    rows = []
+    for d in project_dirs(root):
+        if d.name != exclude:
+            m = meta(d)
+            if m.get("quote"):
+                rows.append((m.get("created", 0), m["quote"]))
+    return {q for _, q in sorted(rows, reverse=True)[:n]}
 
 
 def audio_files(tracks_dir: Path) -> list[Path]:

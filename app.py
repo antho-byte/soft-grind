@@ -61,7 +61,8 @@ def open_project(nm, stage_name):
 
 
 def used_quotes(exclude=""):
-    return {p["quote"] for p in projects.list_projects(PROJECTS) if p["quote"] and p["name"] != exclude}
+    """Headlines of the last 30 videos: a headline may come back after that."""
+    return projects.recent_quotes(PROJECTS, exclude, headlines.RECENT)
 
 
 def set_headline(h):
@@ -682,19 +683,23 @@ if step == "thumbnail":
                 cyber = sticky(st.toggle, "night city style", "cyber", False)
                 tag = st.text_input("tag box", "CYBERPUNK SYNTHWAVE", disabled=not cyber)
                 logo = st.selectbox("logo colour", ["auto", "navy", "white"])
+                hv = sticky(st.toggle, "headline on the video image", "hv", projects.meta(pdir).get("headline_on_video", True),
+                            help="The picture under the music uses the thumbnail design, headline included.")
             with c3:
-                auto = T.suggest_anchor(src_img, quote)
-                anchor = st.selectbox("position", T.ANCHORS, T.ANCHORS.index(auto), help=f"calmest area: {auto}")
-                size = sticky(st.slider, "text size", "size", 0.9, min_value=0.5, max_value=1.6, step=0.05)
+                anchor = st.selectbox("position", T.ANCHORS, T.ANCHORS.index("top-center"),
+                                      help=f"The house style is top-center. The calmest area of this image is {T.suggest_anchor(src_img, quote)}.")
+                size = sticky(st.slider, "text size", "size", 1.5, min_value=0.5, max_value=1.6, step=0.05,
+                              help="1.50 is the house style. Longer headlines shrink by themselves if they would not fit.")
             with c4:
                 dx = st.slider("nudge x", -300, 300, 0, 5)
                 dy = st.slider("nudge y", -300, 300, 0, 5)
-        thumb = T.render_thumbnail(src_img, quote, T.Layout(anchor, size, dx, dy), cyber, tag, subline, logo_mode=logo)
-        still = T.render_still(src_img, cyber, logo_mode=logo)
+        lay_ = T.Layout(anchor, size, dx, dy)
+        thumb = T.render_thumbnail(src_img, quote, lay_, cyber, tag, subline, logo_mode=logo)
+        still = T.render_still(src_img, cyber, logo_mode=logo, quote=quote if hv else None, layout=lay_, tag=tag, subline=subline)
         with prev:
             a, b = st.columns([1.55, 1])
             a.image(thumb, caption="thumbnail · 1280×720")
-            b.image(still, caption="still · 1920×1080 · no quote")
+            b.image(still, caption="video picture · 1920×1080 · " + ("with headline" if hv else "no headline"))
             zbuf = io.BytesIO()
             with zipfile.ZipFile(zbuf, "w") as z:
                 for nm, pic in (("thumbnail.png", thumb), ("still.png", still)):
@@ -703,7 +708,7 @@ if step == "thumbnail":
             if b1.button("save to project", type="primary"):
                 pdir.mkdir(parents=True, exist_ok=True)
                 thumb.save(pdir / "thumbnail.png"); still.save(pdir / "still.png")
-                projects.set_meta(pdir, quote=quote, quote_placeholder=False)
+                projects.set_meta(pdir, quote=quote, quote_placeholder=False, headline_on_video=bool(hv))
                 st.success(f"saved thumbnail.png + still.png in {pdir}")
             b2.download_button("download both", zbuf.getvalue(), "softgrind_cover.zip", "application/zip")
     with st.expander("bulk: many images at once (thumbnails + stills + contact sheet)"):
@@ -715,7 +720,7 @@ if step == "thumbnail":
             with zipfile.ZipFile(zbuf, "w") as z:
                 for i, f in enumerate(sorted(files, key=lambda f: f.name)):
                     im = Image.open(f); q = qs[min(i, len(qs) - 1)]
-                    th = T.render_thumbnail(im, q, T.Layout(T.suggest_anchor(im, q), 0.9)); stl = T.render_still(im)
+                    th = T.render_thumbnail(im, q, T.Layout()); stl = T.render_still(im, quote=q, layout=T.Layout())
                     stem = Path(f.name).stem
                     for nm, pic in ((f"{stem}_thumbnail.png", th), (f"{stem}_still.png", stl)):
                         b = io.BytesIO(); pic.save(b, "PNG"); z.writestr(nm, b.getvalue())
@@ -836,6 +841,8 @@ if step == "video":
             if rs["running"]:
                 pass
             elif video_path.exists():
+                if still_ok and (pdir / "still.png").stat().st_mtime > video_path.stat().st_mtime + 1:
+                    st.warning("The video picture (or its headline) changed after this video was built. Press **make the video again** to update it.")
                 st.video(str(video_path))
                 mb = video_path.stat().st_size / 1_000_000
                 st.caption(f"{metadata.fmt_ts(metadata.total_length([t['duration'] for t in tracks], crossfade))} · {mb:.0f} MB · 1920×1080")

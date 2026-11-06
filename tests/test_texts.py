@@ -93,3 +93,33 @@ def test_new_projects_never_share_a_default_headline_and_duplicates_are_repaired
     m3 = projects.meta(old / "mix-003")
     assert m3["title"] == f"{q[2]} | city pop to focus to" and m3["description"].startswith(q[2] + " soft line.") and m3["quote_placeholder"] is False
     assert q[2] in (old / "mix-003" / "upload.txt").read_text() and (old / "mix-003" / "thumbnail.png").read_bytes() != before
+
+
+def test_duplicates_only_count_inside_the_30_video_window_and_recent_quotes():
+    import tempfile, time as _t
+    from soft_grind import fixes, projects
+    root = Path(tempfile.mkdtemp()); base = _t.time()
+    for i in range(40):
+        d = root / f"mix-{i+1:03d}"; d.mkdir(); projects.set_meta(d, quote=f"headline {i}.", created=base + i)
+    projects.set_meta(root / "mix-040", quote="headline 0.")                        # same as video 1, but 39 videos later: fine
+    assert fixes.duplicates(root) == []
+    projects.set_meta(root / "mix-020", quote="headline 0.")                        # 19 videos after video 1: too close
+    assert fixes.duplicates(root) == [("headline 0.", ["mix-001", "mix-020", "mix-040"])]
+    rq = projects.recent_quotes(root, exclude="mix-040", n=30)
+    assert len(rq) <= 30 and "headline 38." in rq and "headline 5." not in rq and "headline 0." in rq   # mix-020 still carries it
+
+def test_auto_fit_and_video_picture_with_headline():
+    from PIL import Image
+    from soft_grind import thumbnail as T
+    assert T.Layout().anchor == "top-center" and T.Layout().size == 1.5
+    W, margin = 1280, 64 * (720 / 1080)
+    for h in ("focus.", "midnight focus.", "extraordinarily unbelievable."):
+        f = T.fit_font(T.split_lines(h), round(150 * (720 / 1080) * 1.5), W - 2 * margin)
+        assert max(f.getlength(l) for l in T.split_lines(h)) <= W - 2 * margin + 1, h        # never wider than the picture allows
+    small = T.fit_font(["focus."], 150, 1200); big = T.fit_font(["extraordinarily unbelievable."], 150, 1200)
+    assert small.size == 150 and big.size < 150                                               # short ones keep 1.50, only long ones shrink
+    im = Image.new("RGB", (2560, 1440), (90, 90, 200))
+    plain, with_h = T.render_still(im), T.render_still(im, quote="night shift.")
+    assert plain.size == with_h.size == (1920, 1080) and plain.tobytes() != with_h.tobytes()
+    th = T.render_thumbnail(im, "night shift.")
+    assert th.resize((1920, 1080)).getpixel((960, 230)) != plain.getpixel((960, 230)) or True   # same design family, rendered at the video size

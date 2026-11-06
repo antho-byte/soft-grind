@@ -8,15 +8,23 @@ from PIL import Image
 from . import headlines, metadata, projects, thumbnail as T
 
 
-def duplicates(root: Path) -> list[tuple[str, list[str]]]:
-    """[(quote, [project names, oldest first])] for every quote used by more than one project."""
-    groups: dict[str, list[tuple[float, str]]] = {}
+def duplicates(root: Path, window: int = headlines.RECENT) -> list[tuple[str, list[str]]]:
+    """[(quote, [project names, oldest first])] for quotes that two videos less than `window` videos apart share.
+    Reusing a headline after that many videos is fine."""
+    rows = []
     for d in projects.project_dirs(root):
         m = projects.meta(d)
-        q = (m.get("quote") or "").strip()
+        rows.append((m.get("created", 0), d.name, (m.get("quote") or "").strip()))
+    rows.sort()
+    groups: dict[str, list[tuple[int, str, str]]] = {}
+    for pos, (_, name, q) in enumerate(rows):
         if q:
-            groups.setdefault(q.lower(), []).append((m.get("created", 0), d.name, q))
-    return [(rows[0][2], [n for _, n, _ in sorted(rows)]) for rows in groups.values() if len(rows) > 1]
+            groups.setdefault(q.lower(), []).append((pos, name, q))
+    out = []
+    for g in groups.values():
+        if any(b[0] - a[0] < window for a, b in zip(g, g[1:])):
+            out.append((g[0][2], [n for _, n, _ in g]))
+    return out
 
 
 def retitle(pdir: Path, new: str) -> dict:
@@ -43,13 +51,15 @@ def retitle(pdir: Path, new: str) -> dict:
     redrawn = False
     if src is not None and (pdir / "thumbnail.png").exists():
         im = Image.open(src); im.load()
-        T.render_thumbnail(im, new, T.Layout(T.suggest_anchor(im, new), 0.9)).save(pdir / "thumbnail.png")
+        T.render_thumbnail(im, new, T.Layout()).save(pdir / "thumbnail.png")
+        if m.get("headline_on_video", True):
+            T.render_still(im, quote=new, layout=T.Layout()).save(pdir / "still.png")      # the video picture carries the headline too
         redrawn = True
     return {"name": pdir.name, "old": old, "new": new, "thumbnail_redrawn": redrawn}
 
 
 def make_unique(root: Path) -> list[dict]:
-    used = {(projects.meta(d).get("quote") or "").lower() for d in projects.project_dirs(root)}
+    used = {(projects.meta(d).get("quote") or "").lower() for d in projects.project_dirs(root)}      # strict: avoids every existing one
     report = []
     for _, names in duplicates(root):
         for name in names[1:]:                                           # the oldest keeps its headline

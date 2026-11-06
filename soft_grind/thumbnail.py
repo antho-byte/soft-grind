@@ -82,14 +82,14 @@ def check_quote(q: str) -> list[str]:
     out = []
     if q != q.lower(): out.append("quote should be lowercase.")
     if not q.strip().endswith((".", "?")): out.append('quote should end with "." or "?".')
-    if len(q.split()) > 4: out.append("more than ~4 words; keep it short.")
+    if len(q.split()) > 3: out.append("more than 3 words; keep it short.")
     return out
 
 
 @dataclass
 class Layout:
-    anchor: str = "top-left"   # top-left | top-center | top-right | center | bottom-right
-    size: float = 1.0          # multiplier on base size
+    anchor: str = "top-center"  # top-left | top-center | top-right | center | bottom-right
+    size: float = 1.5           # multiplier on base size (the house style: big)
     dx: int = 0                # fine offsets, px at 1080p scale
     dy: int = 0
 
@@ -161,8 +161,21 @@ def cyber_grade(img: Image.Image) -> Image.Image:
     return Image.composite(Image.new("RGB", out.size, (0, 0, 20)), out, scan)
 
 
+def fit_font(lines: list[str], px: int, max_width: float):
+    """Abril at `px`, or smaller if the widest line would be wider than `max_width`."""
+    font = _abril(px)
+    widest = max((font.getlength(l) for l in lines), default=0)
+    if widest > max_width > 0:
+        font = _abril(max(8, int(px * max_width / widest)))
+    return font
+
+
 # ---------- public renders ----------
-def render_still(src: Image.Image, cyber: bool = False, size=(1920, 1080), logo_mode="auto") -> Image.Image:
+def render_still(src: Image.Image, cyber: bool = False, size=(1920, 1080), logo_mode="auto", quote: str | None = None,
+                 layout: Layout | None = None, tag: str = "CYBERPUNK SYNTHWAVE", subline: str = "") -> Image.Image:
+    """The picture under the music. With a `quote` it is the thumbnail design in full HD (same layout), without it photo + logo."""
+    if quote:
+        return render_thumbnail(src, quote, layout, cyber, tag, subline, size=size, logo_mode=logo_mode)
     img = cover_crop(src, size)
     if cyber: img = cyber_grade(img)
     return draw_logo(img, logo_mode)
@@ -177,11 +190,11 @@ def render_thumbnail(src: Image.Image, quote: str, layout: Layout | None = None,
     if cyber: img = cyber_grade(img)
     img = img.convert("RGBA")
 
-    font = _abril(round(150 * sc * layout.size))
     lines = split_lines(quote.strip())
     gap = round(6 * sc)
-    bw, bh, lh, ws = _text_box(lines, font, gap)
     margin = 64 * sc
+    font = fit_font(lines, round(150 * sc * layout.size), W - 2 * margin)      # shrinks only if the headline would run off the edge
+    bw, bh, lh, ws = _text_box(lines, font, gap)
     x, y = _anchor_xy(layout.anchor, W, H, bw, bh, margin)
     x, y = x + layout.dx * sc, y + layout.dy * sc
     align_right = layout.anchor in ("top-right", "bottom-right")

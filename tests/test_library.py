@@ -27,7 +27,16 @@ def test_headlines_rules_and_uniqueness():
                 assert not check_quote(h), (h, check_quote(h))               # lowercase, <= 4 words, ends with . or ?
                 assert h.lower() not in used; used.add(h.lower())
     assert len(used) == 160                                                    # 160 unique headlines in a row, never a repeat
-    assert headlines.suggest("calm", ["rainy window"], set(), 1, seed=1)[0] in headlines.BY_SCENE["rainy window"]
+    first = headlines.suggest("calm", ["rainy window"], set(), 1, seed=1)[0]
+    assert first in headlines.BY_SCENE["rainy window"] or first in headlines.SOFT_GRIND                    # a rare soft-grind line may come first
+    assert headlines.suggest("calm", ["rainy window"], set(SOFT := headlines.SOFT_GRIND), 1, seed=1)[0] in headlines.BY_SCENE["rainy window"]
+    allp = set(headlines.pool("calm")) | set(headlines.pool("groovy")) | {h for v in headlines.BY_SCENE.values() for h in v} | set(headlines.SOFT_GRIND)
+    assert len(allp) >= 180 and not [h for h in allp if check_quote(h)]       # every listed headline obeys the rules (3 words, lowercase, . or ?)
+    assert all(len(h.split()) <= 3 and h == h.lower() and h.endswith((".", "?")) for h in allp)
+    few = sum(1 for s in range(400) if headlines.suggest("calm", [], set(), 1, seed=s)[0] in headlines.SOFT_GRIND)
+    assert 5 <= few <= 60                                                      # 'soft grind' lines are rare, not absent, not common
+    left = headlines.suggest("calm", ["rainy window"], {h for h in allp if h != "stay in."}, 1, seed=3)[0]
+    assert left                                                                # even with almost everything recently used it still answers
 
 def test_parse_headlines_filters_bad_lines():
     txt = """1. let it rain.

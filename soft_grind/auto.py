@@ -87,7 +87,7 @@ def run(job_path: str) -> None:
         check_cancel(); at(2, 0.0, "writing the headline")
         if not projects.meta(pdir).get("quote") or projects.meta(pdir).get("quote_placeholder"):
             analysis = (library.load_db().get(li) or {}).get("analysis") or {"description": "", "scenes": list(topic)[:2]}
-            used_q = {projects.meta(d).get("quote", "") for d in projects.project_dirs(root) if d != pdir}
+            used_q = projects.recent_quotes(root, exclude=name, n=headlines.RECENT)
             used_q.add(projects.meta(pdir).get("quote", ""))                  # not the placeholder either
             h, _ = headlines.pick(analysis, mood, list(topic), used_q, ai_client)
             projects.set_meta(pdir, quote=h, quote_placeholder=False)
@@ -97,8 +97,8 @@ def run(job_path: str) -> None:
         if not ((pdir / "thumbnail.png").exists() and (pdir / "still.png").exists()):
             src = Image.open(pdir / "images" / f"{Path(li).stem}_16x9.png"); src.load()
             q = projects.meta(pdir)["quote"]
-            T.render_thumbnail(src, q, T.Layout(T.suggest_anchor(src, q), 0.9)).save(pdir / "thumbnail.png")
-            T.render_still(src).save(pdir / "still.png")
+            T.render_thumbnail(src, q, T.Layout()).save(pdir / "thumbnail.png")             # size 1.50, top-center
+            T.render_still(src, quote=q, layout=T.Layout()).save(pdir / "still.png")        # the video picture = thumbnail design
 
         # 5 video
         check_cancel(); at(4, 0.0, "building the video")
