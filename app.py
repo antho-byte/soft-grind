@@ -280,7 +280,7 @@ if step == "projects":
         for i, info in enumerate(items):
             with cols[i % 3], st.container(key=f"card_proj_{info['name']}"):
                 if info["cover"]:
-                    st.image(str(info["cover"]), width="stretch")
+                    theme.show_image(info["cover"], width="stretch")
                 else:
                     st.markdown('<div class="sg-cover-empty">no cover yet</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="sg-proj-name">{info["name"]}</div>', unsafe_allow_html=True)
@@ -468,8 +468,6 @@ if step == "playlist":
                     t["title"] = b.text_input("title", t["title"], key=f"t{st.session_state.get('names_v', 0)}_{i}{t.get('id')}", label_visibility="collapsed").lower()
                     c.write(metadata.fmt_ts(t["duration"]))
                     d.audio(t["path"])
-                if st.button("remove all tracks from this view"):
-                    st.session_state["tracks"] = []; st.rerun()
                 if st.button("save these titles to the files"):
                     playlist.rename_files(tracks, tracks_dir)
                     st.success("saved: the titles are kept in the file names")
@@ -521,7 +519,7 @@ if step == "library":
         cols = st.columns(4)
         for i, (p, an) in enumerate(shown):
             with cols[i % 4], st.container(key=f"card_proj_img{i}"):
-                st.image(str(library.thumb(p)), width="stretch")
+                theme.show_image(library.safe_thumb(p) or p.with_name("missing"), width="stretch")
                 if an:
                     chips = [an.get("mood", ""), an.get("time", "")] + an.get("scenes", [])[:1]
                     st.markdown('<span class="sg-proj-meta">' + " · ".join(c for c in chips if c) + "</span>", unsafe_allow_html=True)
@@ -640,7 +638,7 @@ if step == "thumbnail":
             if sugg:
                 for col, r in zip(st.columns(3), sugg):
                     with col:
-                        st.image(str(library.thumb(Path(r["path"]))), width="stretch")
+                        theme.show_image(library.safe_thumb(Path(r["path"])) or Path(r["path"]).with_name("missing"), width="stretch")
                         st.caption(r["analysis"].get("description", "") or Path(r["path"]).name)
                         st.markdown('<span class="sg-proj-meta">' + " · ".join(r["why"]) + "</span>", unsafe_allow_html=True)
                         if st.button("use this one", key=f"use_lib_{name}_{Path(r['path']).stem}"):
@@ -845,7 +843,7 @@ if step == "video":
                                    width="stretch")
             else:
                 if still_ok:
-                    st.image(str(pdir / "still.png"), width="stretch")
+                    theme.show_image(pdir / "still.png", width="stretch")
                 else:
                     st.markdown('<div class="sg-cover-empty">no video yet</div>', unsafe_allow_html=True)
                 st.markdown(("✓" if tracks else "✗") + f" tracks ({len(tracks)}) &nbsp; " + ("✓" if still_ok else "✗")
@@ -863,7 +861,7 @@ if step == "video":
                     except RuntimeError as e:
                         st.error(str(e))
             if (pdir / "thumbnail.png").exists():
-                st.image(str(pdir / "thumbnail.png"), caption="thumbnail", width="stretch")
+                theme.show_image(pdir / "thumbnail.png", caption="thumbnail", width="stretch")
                 st.download_button("download thumbnail", data=lambda: (pdir / "thumbnail.png").read_bytes(),
                                    file_name=f"{name}-thumbnail.png", mime="image/png", width="stretch")
             with st.expander("tracklist"):

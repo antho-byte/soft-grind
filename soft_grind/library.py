@@ -68,6 +68,14 @@ def thumb(p: Path, side: int = 420) -> Path:
     return out
 
 
+def safe_thumb(p: Path, side: int = 420) -> Path | None:
+    """thumb(), but a damaged or unreadable image gives None instead of an error."""
+    try:
+        return thumb(p, side)
+    except Exception:
+        return None
+
+
 # ---------- looking at an image ----------
 def heuristic_analysis(p) -> dict:
     """Free, offline guess from colours only (no AI): brightness, saturation and dominant hue. `p` is a path or an image."""

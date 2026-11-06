@@ -136,3 +136,15 @@ def test_cannot_trash_a_project_that_is_being_made():
     assert pd.exists()
     projects.write_json(pd / projects.AUTO, {"state": "done", "updated": _t.time(), "spec": {}, "step": 6})
     projects.trash_project(pd); assert not pd.exists()
+
+
+def test_set_meta_from_several_processes_loses_nothing():
+    import subprocess, sys, tempfile
+    pd = Path(tempfile.mkdtemp()) / "mix-001"
+    code = ("import sys; from pathlib import Path; sys.path.insert(0, %r); from soft_grind import projects\n"
+            "for i in range(40): projects.set_meta(Path(%r), **{f'w'+sys.argv[1]+'_'+str(i): i})" % (str(Path(__file__).resolve().parent.parent), str(pd)))
+    procs = [subprocess.Popen([sys.executable, "-c", code, str(n)]) for n in range(4)]
+    for p in procs: assert p.wait(timeout=60) == 0
+    m = projects.meta(pd)
+    assert len([k for k in m if k.startswith("w")]) == 160, len(m)            # 4 writers x 40 keys: none overwritten
+    assert not list(pd.glob("*.lock"))

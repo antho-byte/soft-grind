@@ -1,6 +1,7 @@
 """Projects on disk: metadata, background music jobs, and the overview data (cover, stage, progress)."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -54,8 +55,41 @@ def meta(pdir: Path) -> dict:
     return read_json(Path(pdir) / META)
 
 
+@contextlib.contextmanager
+def _locked(path: Path, timeout: float = 5.0):
+    """A tiny cross-platform lock file, so the app and a background job cannot overwrite each other's fields."""
+    lock = Path(str(path) + ".lock")
+    t0, held = time.time(), False
+    while True:
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            held = True
+            break
+        except (FileExistsError, PermissionError):
+            try:
+                if time.time() - lock.stat().st_mtime > 10:          # left behind by a crash
+                    lock.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+            if time.time() - t0 > timeout:                            # never hang: carry on without the lock
+                break
+            time.sleep(0.02)
+    try:
+        yield
+    finally:
+        if held:
+            lock.unlink(missing_ok=True)
+
+
 def set_meta(pdir: Path, **kw) -> dict:
-    m = meta(pdir); m.update(kw); write_json(Path(pdir) / META, m); return m
+    pdir = Path(pdir)
+    pdir.mkdir(parents=True, exist_ok=True)
+    with _locked(pdir / META):
+        m = meta(pdir)
+        m.update(kw)
+        write_json(pdir / META, m)
+    return m
 
 
 def next_project_name(root: Path, prefix: str = "mix") -> str:

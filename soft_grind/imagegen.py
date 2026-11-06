@@ -12,6 +12,8 @@ import time
 from typing import Callable
 
 import requests
+
+from . import net
 from PIL import Image, ImageFilter
 
 from .thumbnail import cover_crop
@@ -118,7 +120,11 @@ def find_image_ref(node) -> str | None:
 
 def _load(ref: str) -> Image.Image:
     if ref.startswith("http"):
-        r = requests.get(ref, timeout=120, headers={"user-agent": "Mozilla/5.0"}); r.raise_for_status()
+        try:
+            r = net.request("GET", ref, retries=2, timeout=120, headers={"user-agent": "Mozilla/5.0"})
+            r.raise_for_status()
+        except requests.RequestException as e:
+            raise ImageError(net.friendly(e)) from e
         return Image.open(io.BytesIO(r.content)).convert("RGB")
     if ref.startswith("data:"):
         ref = ref.split(",", 1)[1]
@@ -132,9 +138,12 @@ class ImageClient:
     def _post(self, path: str, payload: dict, timeout: float = 240) -> dict:
         if not self.token:
             raise ImageError("No image API token set (sidebar → image API token).")
-        r = requests.post(f"{self.base_url}{path}", json=payload, timeout=timeout,
-                          headers={"accept": "application/json", "authorization": f"Bearer {self.token}",
-                                   "content-type": "application/json"})
+        try:
+            r = net.request("POST", f"{self.base_url}{path}", json=payload, timeout=timeout, retries=1,
+                            headers={"accept": "application/json", "authorization": f"Bearer {self.token}",
+                                     "content-type": "application/json"})
+        except requests.RequestException as e:
+            raise ImageError(net.friendly(e)) from e
         if r.status_code >= 400:
             raise ImageError(f"HTTP {r.status_code} from {path}: {r.text[:400]}")
         try:

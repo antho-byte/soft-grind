@@ -10,6 +10,8 @@ import re
 
 import requests
 
+from . import net
+
 BASE_URL = "https://api.acedata.cloud"
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"   # from the API docs; change it in the app if the model card shows a newer name
 
@@ -41,14 +43,17 @@ class AIClient:
             return user.splitlines()[0].replace("Current prompt: ", "") + ", warm tape saturation (mock)", 0.0
         if not self.token:
             raise AIError("No AI token set (sidebar → keys and settings → AI helper token).")
-        r = requests.post(
-            f"{self.base_url}/v1/chat/completions", timeout=90,
-            headers={"accept": "application/json", "authorization": f"Bearer {self.token}", "content-type": "application/json"},
-            json={"model": self.model, "max_tokens": max_tokens, "temperature": temperature,
-                  "messages": [{"role": "system", "content": system},
-                               {"role": "user", "content": user if not images else
-                                [{"type": "text", "text": user}] + [{"type": "image_url", "image_url": {"url": u}} for u in images]}]},
-        )
+        try:
+            content = user if not images else [{"type": "text", "text": user}] + [
+                {"type": "image_url", "image_url": {"url": u}} for u in images]
+            r = net.request(
+                "POST", f"{self.base_url}/v1/chat/completions", retries=1, timeout=90,
+                headers={"accept": "application/json", "authorization": f"Bearer {self.token}", "content-type": "application/json"},
+                json={"model": self.model, "max_tokens": max_tokens, "temperature": temperature,
+                      "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]},
+            )
+        except requests.RequestException as e:
+            raise AIError(net.friendly(e)) from e
         if r.status_code >= 400:
             try:
                 e = r.json().get("error", {})

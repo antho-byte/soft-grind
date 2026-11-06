@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 
 import requests
+
+from . import net
 from mutagen import File as MutagenFile
 
 from .suno import download
@@ -33,8 +35,11 @@ def fetch_playlist(url_or_id: str, max_pages: int = 10) -> tuple[str, list[dict]
         raise PlaylistError("No playlist id found in that link.")
     pid, tracks, name = ids[0], [], "playlist"
     for page in range(1, max_pages + 1):
-        r = requests.get(f"https://studio-api.prod.suno.com/api/playlist/{pid}/",
-                         params={"page": page}, headers=UA, timeout=30)
+        try:
+            r = net.request("GET", f"https://studio-api.prod.suno.com/api/playlist/{pid}/",
+                            retries=2, params={"page": page}, headers=UA, timeout=30)
+        except requests.RequestException as e:
+            raise PlaylistError(net.friendly(e)) from e
         if r.status_code in (401, 403, 404):
             raise PlaylistError(f"Suno returned {r.status_code}. Is the playlist published (public)?")
         r.raise_for_status()

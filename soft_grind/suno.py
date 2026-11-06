@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Callable
 
 import requests
+
+from . import net
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -30,14 +32,17 @@ class SunoClient:
         self._mock_n = 0
 
     # ---------- low level ----------
-    def _post(self, path: str, payload: dict, timeout: float = 120) -> dict:
+    def _post(self, path: str, payload: dict, timeout: float = 120, retries: int = 0) -> dict:
         if not self.token:
             raise SunoError("No AceDataCloud API token set.")
-        r = requests.post(
-            f"{self.base_url}{path}", json=payload, timeout=timeout,
-            headers={"accept": "application/json", "authorization": f"Bearer {self.token}",
-                     "content-type": "application/json"},
-        )
+        try:
+            r = net.request(
+                "POST", f"{self.base_url}{path}", json=payload, timeout=timeout, retries=retries,
+                headers={"accept": "application/json", "authorization": f"Bearer {self.token}",
+                         "content-type": "application/json"},
+            )
+        except requests.RequestException as e:
+            raise SunoError(net.friendly(e)) from e
         if r.status_code >= 400:
             try:
                 err = r.json().get("error", {})
@@ -88,7 +93,7 @@ class SunoClient:
                 clips.append({"id": f"{task_id}-{i}", "title": title, "audio_url": p.as_uri(),
                               "image_url": "", "duration": 6 + i})
             return {"state": "complete", "clips": clips, "error": ""}
-        res = self._post("/suno/tasks", {"id": task_id, "action": "retrieve"})
+        res = self._post("/suno/tasks", {"id": task_id, "action": "retrieve"}, retries=3)
         resp = res.get("response") if isinstance(res.get("response"), dict) else {}
         data = resp.get("data") or []
         state_raw = str(res.get("state", "")).lower()
@@ -140,9 +145,13 @@ def download(url: str, dest: Path) -> Path:
     if url.startswith("file://"):
         dest.write_bytes(uri_to_path(url).read_bytes())
         return dest
-    with requests.get(url, stream=True, timeout=120, headers={"user-agent": "Mozilla/5.0"}) as r:
-        r.raise_for_status()
-        with open(dest, "wb") as f:
-            for chunk in r.iter_content(1 << 16):
-                f.write(chunk)
+    try:
+        with net.request("GET", url, retries=2, stream=True, timeout=120, headers={"user-agent": "Mozilla/5.0"}) as r:
+            r.raise_for_status()
+            with open(dest, "wb") as f:
+                for chunk in r.iter_content(1 << 16):
+                    f.write(chunk)
+    except requests.RequestException as e:
+        dest.unlink(missing_ok=True)                              # never leave a half-downloaded track behind
+        raise SunoError(net.friendly(e)) from e
     return dest

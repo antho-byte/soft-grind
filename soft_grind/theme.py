@@ -5,8 +5,10 @@ The Abril Fatface font is embedded, so it also works offline.
 """
 import base64
 import html
+from pathlib import Path
 
 import streamlit as st
+from PIL import Image
 
 from .brand import FONT_DIR
 
@@ -99,3 +101,16 @@ def page_title(crumb: str, title: str, sub: str) -> None:
     st.markdown(f'<div class="sg-crumb">{html.escape(crumb)}</div>'
                 f'<div class="sg-title">{html.escape(title)[:-1]}<i>.</i></div>'
                 f'<div class="sg-sub">{html.escape(sub)}</div>', unsafe_allow_html=True)
+
+
+def show_image(src, caption: str | None = None, **kw) -> bool:
+    """st.image for a file path or picture; a missing or damaged file shows a quiet placeholder instead of crashing the page."""
+    try:
+        if isinstance(src, (str, Path)):
+            with Image.open(src) as im:
+                im.verify()
+        st.image(src if not isinstance(src, Path) else str(src), caption=caption, **kw)
+        return True
+    except Exception:
+        st.markdown('<div class="sg-cover-empty">picture can\'t be shown</div>', unsafe_allow_html=True)
+        return False
