@@ -85,3 +85,20 @@ def test_render_job_in_background():
     t0 = time.time()
     while time.time() - t0 < 30 and projects.render_status(pdir)["state"] not in ("done", "failed"): time.sleep(0.3)
     st = projects.render_status(pdir); assert st["state"] == "failed" and "still" in st["error"].lower()
+
+
+def test_write_json_survives_windows_style_access_denied(monkeypatch):
+    import tempfile, time as _t
+    d = Path(tempfile.mkdtemp()); f = d / "auto.json"
+    real, calls = os.replace, {"n": 0}
+    def flaky(src, dst):                                   # Windows: denied while another process has the file open
+        calls["n"] += 1
+        if calls["n"] <= 5: raise PermissionError(5, "Access is denied")
+        return real(src, dst)
+    monkeypatch.setattr(os, "replace", flaky)
+    projects.write_json(f, {"a": 1})
+    assert projects.read_json(f) == {"a": 1} and calls["n"] == 6 and not list(d.glob("*.tmp"))
+    monkeypatch.setattr(os, "replace", lambda s, t: (_ for _ in ()).throw(PermissionError(5, "denied")))   # never works
+    monkeypatch.setattr(_t, "sleep", lambda s: None)
+    projects.write_json(f, {"a": 2})                                                  # falls back to writing in place
+    assert projects.read_json(f) == {"a": 2} and not list(d.glob("*.tmp"))

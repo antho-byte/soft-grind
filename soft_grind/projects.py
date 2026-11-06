@@ -23,11 +23,22 @@ def read_json(path: Path) -> dict:
 
 
 def write_json(path: Path, data: dict) -> None:
-    """Atomic write, so the app never reads a half-written file while the worker updates it."""
+    """Atomic write, so the app never reads a half-written file while a worker updates it.
+    On Windows, replacing a file that another process has open fails with 'Access is denied'; that is retried for a moment."""
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    text = json.dumps(data, indent=2)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    for attempt in range(40):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(min(0.25, 0.02 * (attempt + 1)))
+    try:                                                  # last resort: overwrite in place (a reader may see it half-written once)
+        path.write_text(text, encoding="utf-8")
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def meta(pdir: Path) -> dict:
