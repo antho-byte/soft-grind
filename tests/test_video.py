@@ -39,3 +39,14 @@ def test_crossfade_is_capped_and_errors():
     for args in (([], d / "still.png"), (tracks, d / "missing.png")):
         try: video.render_video(args[0], args[1], d / "x.mp4", [4.0, 4.0]); assert False
         except video.VideoError: pass
+
+
+def test_preview_is_small_and_made_with_every_render():
+    d, tracks = _setup()
+    out = video.render_video(tracks, d / "still.png", d / "video.mp4", [playlist.audio_duration(t) for t in tracks], crossfade=2.0, fade_in=1, fade_out=2)
+    prev = d / "preview.mp4"
+    info = video.probe(prev)
+    assert prev.exists() and info["size"][0] == 640 and info["vcodec"] == "h264" and info["acodec"] == "aac"
+    assert 19 < info["duration"] < 21 and prev.stat().st_size < out.stat().st_size                      # whole 20 s clip, smaller file
+    video.make_preview(out, d / "p2.mp4", seconds=5)
+    assert 4 < video.probe(d / "p2.mp4")["duration"] < 6                                                  # cut to the asked length

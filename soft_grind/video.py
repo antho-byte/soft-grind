@@ -118,8 +118,23 @@ def render_video(tracks: list[Path], still: Path, out: Path, durations: list[flo
             "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-t", f"{total:.3f}", "-movflags", "+faststart", "-f", "mp4", str(partial)]
     _run(cmd, total, prog(0.4, 1.0, "building the video"))
     os.replace(partial, out)
+    try:
+        make_preview(out, out.with_name("preview.mp4"))
+    except VideoError:
+        pass                                              # the preview is a convenience, never a reason to fail
     if on_progress:
         on_progress(1.0, "done")
+    return out
+
+
+def make_preview(src: Path, out: Path, seconds: int = 90) -> Path:
+    """A small 640-wide copy of the first `seconds` seconds. The video page plays this one, so the page stays fast."""
+    out = Path(out)
+    partial = out.with_name(out.stem + ".partial.mp4")
+    _run([ffmpeg_exe(), "-hide_banner", "-nostats", "-y", "-i", str(src), "-t", str(seconds), "-vf", "scale=640:-2",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "32", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
+          "-f", "mp4", str(partial)], 0, None)
+    os.replace(partial, out)
     return out
 
 

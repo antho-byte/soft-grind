@@ -47,6 +47,9 @@ h1,h2,h3{font-family:'Abril Fatface',serif!important;font-weight:400!important;c
 /* cards */
 [class*="st-key-card"]{background:#fff;border-radius:22px;padding:26px 28px!important;box-shadow:0 10px 30px rgba(20,24,82,.07);margin-bottom:18px}
 
+.sg-saved{font-size:13px;font-weight:600;color:#17614A}
+.sg-unsaved{font-size:13px;font-weight:600;color:#9A5B00}
+
 /* projects overview */
 [class*="st-key-card_proj"]{padding:14px!important;border-radius:20px}
 .sg-cover-empty{height:150px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#4A4E7C;font-size:13px;

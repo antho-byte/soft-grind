@@ -10,7 +10,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import ai, brand, fixes, headlines, imagegen, library, metadata, names, playlist, projects, settings, texts, theme, thumbnail as T
+from soft_grind import ai, brand, fixes, headlines, imagegen, library, metadata, names, playlist, projects, settings, texts, theme, thumbnail as T, video
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
@@ -805,6 +805,7 @@ if step == "video":
 
     # ---- the form (right)
     with form_slot:
+        status_slot = st.empty()
         title = st.text_input("Title", init["title"], key=f"w_{name}_title{ver}", max_chars=100)
         st.caption(f"{len(title)}/100 characters · the first 60 matter most")
         desc = st.text_area("Description", init["description"], height=300, key=f"w_{name}_desc{ver}")
@@ -820,12 +821,40 @@ if step == "video":
             st.warning("YouTube titles cannot contain < or >.")
         cur = {"title": title, "description": desc, "tags": tags, "pinned": pinned,
                "schedule": f"{sdate:%Y-%m-%d} {stime:%H:%M}"}
-        dirty = any(cur[k] != saved.get(k) for k in cur)
-        if st.button("save changes" if dirty else "all changes saved", type="primary" if dirty else "secondary", disabled=not dirty):
-            projects.set_meta(pdir, **cur)
+        base = {"title": init["title"], "description": init["description"], "tags": init["tags"], "pinned": init["pinned"],
+                "schedule": f"{_slot:%Y-%m-%d %H:%M}"}
+        has_saved = bool(saved.get("title"))
+        edited = any(cur[k] != base[k] for k in cur)                    # you (or a "write it for me" button) changed the text
+
+        def save_now(prev=None):
+            keep = {}
+            if prev is not None:                                        # the replaced version stays available for "undo"
+                keep = {"text_history": ((prev.get("text_history") or [])[-9:]
+                                         + [{**{k: prev.get(k, "") for k in cur}, "at": time.strftime("%d %b %H:%M")}])}
+            projects.set_meta(pdir, **cur, **keep)
             (pdir / "upload.txt").write_text(metadata.upload_txt(title, desc, [t.strip() for t in tags.split(",") if t.strip()],
                                                                  pinned, cur["schedule"]), encoding="utf-8")
-            st.rerun()
+
+        differs = any(cur[k] != saved.get(k) for k in cur)
+        if differs and (has_saved or edited):                           # autosave: nothing you type is lost
+            save_now(saved if has_saved else None)
+            saved = projects.meta(pdir)
+            differs = False
+        if not differs:
+            status_slot.markdown('<span class="sg-saved">✓ all changes saved</span>', unsafe_allow_html=True)
+        else:
+            status_slot.markdown('<span class="sg-unsaved">not saved yet: this is a suggestion</span>', unsafe_allow_html=True)
+            if st.button("use this text", type="primary"):
+                save_now()
+                st.rerun()
+        hist = saved.get("text_history") or []
+        if hist:
+            if st.button(f"undo the last text change ({hist[-1]['at']})"):
+                last = hist[-1]
+                projects.set_meta(pdir, **{k: last[k] for k in cur}, text_history=hist[:-1])
+                st.session_state[f"_seed_{name}"] = {k: last[k] for k in ("title", "description", "tags", "pinned")}
+                st.session_state[vkey] = st.session_state.get(vkey, 0) + 1
+                st.rerun()
         with st.expander("copy"):
             for lbl, val in (("title", title), ("description", desc), ("tags", tags), ("pinned comment", pinned)):
                 st.caption(lbl); st.code(val, language=None)
@@ -843,7 +872,20 @@ if step == "video":
             elif video_path.exists():
                 if still_ok and (pdir / "still.png").stat().st_mtime > video_path.stat().st_mtime + 1:
                     st.warning("The video picture (or its headline) changed after this video was built. Press **make the video again** to update it.")
-                st.video(str(video_path))
+                prev_path = pdir / "preview.mp4"
+                if not prev_path.exists() or prev_path.stat().st_mtime < video_path.stat().st_mtime:
+                    try:
+                        video.make_preview(video_path, prev_path)
+                    except Exception:
+                        prev_path = None
+                if st.session_state.get(f"_full_{name}") or prev_path is None:
+                    st.video(str(video_path))
+                    if prev_path is not None:
+                        st.button("back to the quick preview", on_click=lambda: st.session_state.update({f"_full_{name}": False}))
+                else:
+                    st.video(str(prev_path))
+                    st.caption("quick preview: the first 90 seconds. The page stays fast this way.")
+                    st.button("load the full video", on_click=lambda: st.session_state.update({f"_full_{name}": True}))
                 mb = video_path.stat().st_size / 1_000_000
                 st.caption(f"{metadata.fmt_ts(metadata.total_length([t['duration'] for t in tracks], crossfade))} · {mb:.0f} MB · 1920×1080")
                 st.download_button("download video", data=lambda: video_path.read_bytes(), file_name=f"{name}.mp4", mime="video/mp4",
