@@ -1,5 +1,6 @@
-streamlit
+streamlit>=1.50
 pillow
 numpy
 requests
 mutagen
+imageio-ffmpeg

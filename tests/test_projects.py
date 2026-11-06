@@ -22,11 +22,13 @@ def test_names_and_stage():
     assert projects.next_project_name(root) == "mix-001"           # empty folders are not videos
     (root / "mix-007" / "tracks").mkdir(); (root / "mix-007" / "tracks" / "x.mp3").write_bytes(b"1")
     assert projects.next_project_name(root) == "mix-008"
-    info = {"job": {"running": False}, "tracks": 0, "has_thumbnail": False, "has_upload": False}
+    info = {"job": {"running": False}, "tracks": 0, "has_thumbnail": False, "has_upload": False, "has_video": False}
     assert projects.stage(info) == "new"
     assert projects.stage({**info, "tracks": 4}) == "needs a thumbnail"
-    assert projects.stage({**info, "tracks": 4, "has_thumbnail": True}) == "needs youtube text"
-    assert projects.stage({**info, "tracks": 4, "has_thumbnail": True, "has_upload": True}) == "ready"
+    assert projects.stage({**info, "tracks": 4, "has_thumbnail": True}) == "needs the video"
+    assert projects.stage({**info, "tracks": 4, "has_thumbnail": True, "has_video": True}) == "needs youtube text"
+    assert projects.stage({**info, "tracks": 4, "has_thumbnail": True, "has_video": True, "has_upload": True}) == "ready"
+    assert projects.stage({**info, "tracks": 4, "render": {"running": True}}) == "making the video"
     assert projects.stage({**info, "job": {"running": True}}) == "making music"
 
 def test_background_job_end_to_end_and_overview():
@@ -40,7 +42,7 @@ def test_background_job_end_to_end_and_overview():
     assert len(set(titles)) == 6 and not any(t.endswith((" a", " b")) for t in titles)
     (pdir / "thumbnail.png").write_bytes(b"x")
     ov = projects.list_projects(root)
-    assert len(ov) == 1 and ov[0]["tracks"] == 6 and ov[0]["seconds"] > 30 and ov[0]["stage"] == "needs youtube text"
+    assert len(ov) == 1 and ov[0]["tracks"] == 6 and ov[0]["seconds"] > 30 and ov[0]["stage"] == "needs the video"
     assert ov[0]["cover"].name == "thumbnail.png" and not ov[0]["job"]["running"]
 
 def test_cancel_and_double_start_and_stale():
@@ -56,3 +58,30 @@ def test_cancel_and_double_start_and_stale():
     projects.cancel_job(pdir2)                                               # ...and a new one, set right after start, stops the job
     st = _wait(pdir2, {"cancelled", "done", "failed"})
     assert st["state"] == "cancelled" and st["done"] < 30
+
+
+def test_next_free_slot():
+    import datetime as dt
+    wed = dt.datetime(2026, 11, 4, 10, 0)                                   # a Wednesday morning
+    assert projects.next_free_slot(set(), wed) == dt.datetime(2026, 11, 4, 15, 0)
+    assert projects.next_free_slot({"2026-11-04 15:00"}, wed) == dt.datetime(2026, 11, 6, 15, 0)       # Friday
+    assert projects.next_free_slot({"2026-11-04 15:00", "2026-11-06 15:00"}, wed) == dt.datetime(2026, 11, 9, 15, 0)  # Monday
+    assert projects.next_free_slot(set(), dt.datetime(2026, 11, 4, 16, 0)) == dt.datetime(2026, 11, 6, 15, 0)   # too late today
+
+def test_render_job_in_background():
+    import tempfile
+    from PIL import Image
+    from soft_grind.suno import _write_tone
+    pdir = Path(tempfile.mkdtemp()) / "mix-001"; (pdir / "tracks").mkdir(parents=True)
+    for i in range(3): _write_tone(pdir / "tracks" / f"{i+1:02d} - t{i}.wav", 8, 200 + 50 * i)
+    Image.new("RGB", (1920, 1080), (200, 90, 120)).save(pdir / "still.png")
+    projects.start_render(pdir, crossfade=2.0, fade_in=1, fade_out=2)
+    t0 = time.time()
+    while time.time() - t0 < 60 and projects.render_status(pdir)["state"] not in ("done", "failed"): time.sleep(0.3)
+    st = projects.render_status(pdir); assert st["state"] == "done", st
+    assert (pdir / "video.mp4").exists() and not (pdir / "video.partial.mp4").exists()
+    (pdir / "still.png").unlink(); (pdir / "video.mp4").unlink()                  # a missing still is reported, not a crash
+    projects.start_render(pdir)
+    t0 = time.time()
+    while time.time() - t0 < 30 and projects.render_status(pdir)["state"] not in ("done", "failed"): time.sleep(0.3)
+    st = projects.render_status(pdir); assert st["state"] == "failed" and "still" in st["error"].lower()

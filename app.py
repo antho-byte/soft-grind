@@ -17,14 +17,14 @@ theme.inject()
 PROJECTS = settings.projects_dir()
 SAVED = settings.load_keys()
 
-STEPS = ["projects", "music", "playlist", "fix images", "thumbnail", "youtube"]
+STEPS = ["projects", "music", "playlist", "fix images", "thumbnail", "video"]
 TITLES = {
     "projects": ("your videos.", "every video you made, with its cover. open one to keep going."),
     "music": ("make the music.", "pick a sound, press generate, get instrumental tracks."),
     "playlist": ("the playlist.", "pull in your tracks, check the titles and the order."),
     "fix images": ("fix the photos.", "turn vertical photos into 16:9."),
     "thumbnail": ("the cover.", "one image, one quote, one logo."),
-    "youtube": ("the upload.", "title, description, tags and a pinned comment."),
+    "video": ("the video.", "watch it, check the words, pick a day to publish."),
 }
 st.session_state.setdefault("step", "projects")
 
@@ -57,9 +57,29 @@ def new_video():
 
 def open_project(nm, stage_name):
     st.session_state.update(project=nm, tracks=[], fix_results={}, step={
-        "new": "music", "making music": "music", "needs a thumbnail": "thumbnail",
-        "needs youtube text": "youtube", "ready": "youtube"}.get(stage_name, "music"))
+        "new": "music", "making music": "music", "needs a thumbnail": "thumbnail", "needs the video": "video",
+        "making the video": "video", "needs youtube text": "video", "ready": "video"}.get(stage_name, "music"))
     st.session_state.pop("_job_was_running", None)
+
+
+def render_panel(pdir_):
+    """Live progress of the background video render."""
+    def body():
+        rs = projects.render_status(pdir_)
+        was = st.session_state.get("_render_was_running") == pdir_.name
+        if rs["running"]:
+            st.session_state["_render_was_running"] = pdir_.name
+            st.progress(rs["progress"], text=f"{rs['message']} · {int(rs['progress'] * 100)}%")
+            st.caption("This runs in the background. You can leave this page; keep the black window open.")
+            return
+        if was:
+            st.session_state.pop("_render_was_running", None)
+            st.rerun()
+        if rs["state"] == "failed":
+            st.error(f"The video could not be made: {rs['error']}")
+        elif rs["state"] == "interrupted":
+            st.warning("The video job stopped unexpectedly (window closed or computer asleep). Press make the video again.")
+    st.fragment(run_every=3 if projects.render_status(pdir_)["running"] else None)(body)()
 
 
 def job_panel(pdir_):
@@ -145,13 +165,13 @@ tracks = st.session_state["tracks"]
 imgs_dir = pdir / "images"
 
 step = st.session_state["step"]
-theme.page_title("all videos" if step == "projects" else f"{name} / {step}", *TITLES[step])
+theme.page_title("all videos" if step == "projects" else (f"videos › {name}" if step == "video" else f"{name} / {step}"), *TITLES[step])
 
 if step == "projects":
     h1, h2 = st.columns([4, 1])
-    h2.button("new video", type="primary", on_click=new_video, use_container_width=True)
-    PILL = {"making music": "#E7E5FF", "new": "#EFEFEF", "needs a thumbnail": "#FFF0D9",
-            "needs youtube text": "#FFE4EE", "ready": "#DDF1E6"}
+    h2.button("new video", type="primary", on_click=new_video, width="stretch")
+    PILL = {"making music": "#E7E5FF", "new": "#EFEFEF", "needs a thumbnail": "#FFF0D9", "needs the video": "#FFF0D9",
+            "making the video": "#E7E5FF", "needs youtube text": "#FFE4EE", "ready": "#DDF1E6"}
 
     def grid():
         items = projects.list_projects(PROJECTS)
@@ -162,7 +182,7 @@ if step == "projects":
         for i, info in enumerate(items):
             with cols[i % 3], st.container(key=f"card_proj_{info['name']}"):
                 if info["cover"]:
-                    st.image(str(info["cover"]), use_container_width=True)
+                    st.image(str(info["cover"]), width="stretch")
                 else:
                     st.markdown('<div class="sg-cover-empty">no cover yet</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="sg-proj-name">{info["name"]}</div>', unsafe_allow_html=True)
@@ -171,13 +191,17 @@ if step == "projects":
                 st.markdown(f'<span class="sg-pill" style="background:{PILL.get(info["stage"], "#EFEFEF")}">{info["stage"]}</span> '
                             f'<span class="sg-proj-meta">{info["tracks"]} tracks · {round(info["seconds"] / 60)} min</span>',
                             unsafe_allow_html=True)
+                if info["schedule"]:
+                    st.markdown(f'<span class="sg-proj-meta">publishes {info["schedule"]}</span>', unsafe_allow_html=True)
                 if info["job"]["running"]:
                     st.progress(info["job"]["progress"], text=f"{info['job']['done']} of {info['job']['total']} requests")
+                if info["render"]["running"]:
+                    st.progress(info["render"]["progress"], text="making the video")
                 if st.button("open", key=f"open_{info['name']}"):
                     open_project(info["name"], info["stage"])
                     st.rerun()                                           # full rerun, so the page switches
 
-    running_any = any(p["job"]["running"] for p in projects.list_projects(PROJECTS))
+    running_any = any(p["job"]["running"] or p["render"]["running"] for p in projects.list_projects(PROJECTS))
     st.fragment(run_every=5 if running_any else None)(grid)()
 
 if step == "music":
@@ -447,54 +471,125 @@ if step == "thumbnail":
             st.image(sheet, caption="contact sheet")
             st.download_button("download zip", zbuf.getvalue(), "softgrind_bulk.zip", "application/zip")
 
-if step == "youtube":
-    with st.container(key="card_youtube"):
+if step == "video":
+    saved = projects.meta(pdir)
+    video_path = pdir / "video.mp4"
+    left, right = st.columns([1, 1.5], gap="large")
+
+    # ---- the text generator: drawn under the form, but its values are needed first
+    with right:
+        form_slot = st.container(key="card_form")
+        with st.expander("write the text for me (settings)"):
             if len(tracks) < 3:
                 st.warning("Add at least 3 tracks (music or playlist step): the tracklist needs real durations for chapters.")
             c1, c2 = st.columns(2)
             with c1:
                 quote_m = sticky(st.text_input, "quote", "quote", "you've got this.")
-                subline_m = st.text_input("subline", "one more hour, then rest.")
+                subline_m = sticky(st.text_input, "subline", "subline_yt", "one more hour, then rest.")
                 tstyle = st.radio("title format", ["quote", "playlist"], horizontal=True,
                                   format_func=lambda s: "[quote] | 80s japanese city pop to work & study to"
                                   if s == "quote" else "[playlist] you're [scenario] [emoji] 80s city pop")
-                pm = projects.meta(pdir)
-                pl = st.text_input("playlist name", pm.get("playlist_name", "night desk"), key=f"w_{name}_plname", disabled=tstyle == "quote")
-                sc = st.text_input("scenario", pm.get("scenario", "studying at 2am"), key=f"w_{name}_scen", disabled=tstyle == "quote")
+                pl = st.text_input("playlist name", saved.get("playlist_name", "night desk"), key=f"w_{name}_plname", disabled=tstyle == "quote")
+                sc = st.text_input("scenario", saved.get("scenario", "studying at 2am"), key=f"w_{name}_scen", disabled=tstyle == "quote")
                 emoji = st.text_input("emoji", "🌴", disabled=tstyle == "quote")
             with c2:
                 scene = st.text_area("scene + mood (2–3 sentences)", "a quiet desk, a warm lamp and the city glowing outside. "
                                      "slow, soft grooves that keep you company while you work.", height=110)
                 use = st.text_input("for…", "working and studying")
-                artist = st.selectbox("inspired by (title/description only)", brand.ARTISTS,
-                                      index=len(tracks) % len(brand.ARTISTS))
+                artist = st.selectbox("inspired by (title/description only)", brand.ARTISTS, index=len(tracks) % len(brand.ARTISTS))
                 mood = st.selectbox("mood hashtag", list(brand.MOODS))
                 question = st.selectbox("question to viewers", brand.DESCRIPTION_QUESTIONS)
-                pinned = st.selectbox("pinned comment", brand.PINNED_COMMENTS)
-            if (pl, sc, quote_m) != (pm.get("playlist_name"), pm.get("scenario"), pm.get("quote")):
-                projects.set_meta(pdir, playlist_name=pl, scenario=sc, quote=quote_m)
-            title = metadata.make_title(tstyle, quote_m, pl, sc, emoji)
-            desc = metadata.make_description(quote_m, subline_m, scene, tracks, use, artist, question,
-                                             brand.MOODS[mood], crossfade) if tracks else ""
-            tags = metadata.make_tags()
-            sig = abs(hash((title, desc, tuple(tags), pinned)))  # refresh fields when inputs change, keep manual edits otherwise
-            st.text_input("title", title, key=f"title_out{sig}")
-            st.caption(f"{len(title)} chars")
-            st.text_area("description (editable)", desc, height=420, key=f"desc_out{sig}")
-            st.text_area("tags", ", ".join(tags), height=70, key=f"tags_out{sig}")
-            st.text_input("pinned comment", pinned, key=f"pin_out{sig}")
-            for issue in metadata.validate(title, tracks, pinned): st.warning(issue)
-            st.markdown("**copy:** use the copy icon on code blocks below")
-            for lbl, val in (("title", st.session_state[f"title_out{sig}"]), ("description", st.session_state[f"desc_out{sig}"]),
-                             ("tags", st.session_state[f"tags_out{sig}"]), ("pinned comment", st.session_state[f"pin_out{sig}"])):
+                pinned_choice = st.selectbox("pinned comment", brand.PINNED_COMMENTS)
+            st.button("write title, description and tags for me", on_click=lambda: st.session_state.update(_regen_req=name))
+            st.caption("This replaces the text in the form above. Edit it afterwards, then press save.")
+        if (pl, sc, quote_m) != (saved.get("playlist_name"), saved.get("scenario"), saved.get("quote")):
+            projects.set_meta(pdir, playlist_name=pl, scenario=sc, quote=quote_m)
+            saved = projects.meta(pdir)
+        gen = {"title": metadata.make_title(tstyle, quote_m, pl, sc, emoji),
+               "description": metadata.make_description(quote_m, subline_m, scene, tracks, use, artist, question,
+                                                        brand.MOODS[mood], crossfade) if tracks else "",
+               "tags": ", ".join(metadata.make_tags()), "pinned": pinned_choice}
+        vkey = f"_text_v_{name}"
+        if st.session_state.pop("_regen_req", None) == name:       # "write it for me": new widgets, filled with fresh text
+            st.session_state[vkey] = st.session_state.get(vkey, 0) + 1
+            st.session_state[f"_seed_{name}"] = gen
+        ver = st.session_state.get(vkey, 0)
+        seed = st.session_state.get(f"_seed_{name}") or {}
+        init = {k: seed.get(k) or saved.get(k) or gen[k] for k in gen}
+        import datetime as _dt
+        if saved.get("schedule"):
+            _slot = _dt.datetime.strptime(saved["schedule"], "%Y-%m-%d %H:%M")
+        else:
+            _slot = projects.next_free_slot({p["schedule"] for p in projects.list_projects(PROJECTS) if p["name"] != name})
+
+    # ---- the form (right)
+    with form_slot:
+        title = st.text_input("Title", init["title"], key=f"w_{name}_title{ver}", max_chars=100)
+        st.caption(f"{len(title)}/100 characters · the first 60 matter most")
+        desc = st.text_area("Description", init["description"], height=300, key=f"w_{name}_desc{ver}")
+        tags = st.text_area("Tags", init["tags"], height=70, key=f"w_{name}_tags{ver}")
+        pinned = st.text_input("Pinned comment", init["pinned"], key=f"w_{name}_pin{ver}")
+        st.markdown("**Scheduled date**")
+        d1, d2, d3 = st.columns([1.2, 1, 1.6])
+        sdate = d1.date_input("date", _slot.date(), key=f"w_{name}_date{ver}", label_visibility="collapsed")
+        stime = d2.time_input("time (Amsterdam)", _slot.time(), key=f"w_{name}_time{ver}", label_visibility="collapsed")
+        d3.caption("Mon / Wed / Fri 15:00 · next free slot suggested · upload as private and scheduled")
+        for issue in metadata.validate(title, tracks, pinned): st.warning(issue)
+        if "<" in title or ">" in title:
+            st.warning("YouTube titles cannot contain < or >.")
+        cur = {"title": title, "description": desc, "tags": tags, "pinned": pinned,
+               "schedule": f"{sdate:%Y-%m-%d} {stime:%H:%M}"}
+        dirty = any(cur[k] != saved.get(k) for k in cur)
+        if st.button("save changes" if dirty else "all changes saved", type="primary" if dirty else "secondary", disabled=not dirty):
+            projects.set_meta(pdir, **cur)
+            (pdir / "upload.txt").write_text(metadata.upload_txt(title, desc, [t.strip() for t in tags.split(",") if t.strip()],
+                                                                 pinned, cur["schedule"]), encoding="utf-8")
+            st.rerun()
+        with st.expander("copy"):
+            for lbl, val in (("title", title), ("description", desc), ("tags", tags), ("pinned comment", pinned)):
                 st.caption(lbl); st.code(val, language=None)
-            txt = metadata.upload_txt(title, st.session_state[f"desc_out{sig}"], tags, st.session_state[f"pin_out{sig}"])
-            cA, cB = st.columns(2)
-            if cA.button("save upload.txt"):
-                (pdir / "upload.txt").write_text(txt, encoding="utf-8"); st.success(f"saved {pdir / 'upload.txt'}")
-            cB.download_button("download upload.txt", txt, "upload.txt")
-            st.caption("Upload as private/scheduled · Mon/Wed/Fri 15:00 Amsterdam · channel guidelines: "
-                       + " / ".join(brand.CHANNEL_GUIDELINES))
+        st.caption("Channel guidelines: " + " / ".join(brand.CHANNEL_GUIDELINES))
+
+    # ---- the video (left)
+    with left:
+        with st.container(key="card_video"):
+            rs = projects.render_status(pdir)
+            still_ok = (pdir / "still.png").exists()
+            if rs["running"] or (rs["state"] in ("failed", "interrupted")):
+                render_panel(pdir)
+            if rs["running"]:
+                pass
+            elif video_path.exists():
+                st.video(str(video_path))
+                mb = video_path.stat().st_size / 1_000_000
+                st.caption(f"{metadata.fmt_ts(metadata.total_length([t['duration'] for t in tracks], crossfade))} · {mb:.0f} MB · 1920×1080")
+                st.download_button("download video", data=lambda: video_path.read_bytes(), file_name=f"{name}.mp4", mime="video/mp4",
+                                   width="stretch")
+            else:
+                if still_ok:
+                    st.image(str(pdir / "still.png"), width="stretch")
+                else:
+                    st.markdown('<div class="sg-cover-empty">no video yet</div>', unsafe_allow_html=True)
+                st.markdown(("✓" if tracks else "✗") + f" tracks ({len(tracks)}) &nbsp; " + ("✓" if still_ok else "✗")
+                            + " still image (thumbnail step)")
+            with st.expander("video settings"):
+                f_in = st.number_input("fade in (s)", 0.0, 10.0, 3.0, 0.5)
+                f_out = st.number_input("fade out (s)", 0.0, 20.0, 6.0, 0.5)
+                st.caption(f"Crossfade {crossfade:g}s (set under keys and settings) · loudness −14 LUFS · still image, no animation.")
+            if not rs["running"]:
+                if st.button("make the video again" if video_path.exists() else "make the video", type="secondary" if video_path.exists() else "primary",
+                             disabled=not (tracks and still_ok), width="stretch"):
+                    try:
+                        projects.start_render(pdir, crossfade, f_in, f_out)
+                        st.rerun()
+                    except RuntimeError as e:
+                        st.error(str(e))
+            if (pdir / "thumbnail.png").exists():
+                st.image(str(pdir / "thumbnail.png"), caption="thumbnail", width="stretch")
+                st.download_button("download thumbnail", data=lambda: (pdir / "thumbnail.png").read_bytes(),
+                                   file_name=f"{name}-thumbnail.png", mime="image/png", width="stretch")
+            with st.expander("tracklist"):
+                st.code(metadata.tracklist_text(tracks, crossfade) if tracks else "no tracks yet", language=None)
 
 # ---------------- progress rail (left), filled last so it shows fresh status ----------------
 tracks = st.session_state["tracks"]
@@ -502,21 +597,25 @@ n = len(tracks)
 mins = round(metadata.total_length([t["duration"] for t in tracks], crossfade) / 60)
 fixed_n = len(list(imgs_dir.glob("*_16x9.png"))) if imgs_dir.exists() else 0
 cover_done = (pdir / "thumbnail.png").exists()
-yt_done = (pdir / "upload.txt").exists()
+yt_done = bool(projects.meta(pdir).get("title")) and (pdir / "upload.txt").exists()
+video_done = (pdir / "video.mp4").exists()
+render_now = projects.render_status(pdir)
 proj_count = len(projects.list_projects(PROJECTS))
 job_now = projects.job_status(pdir)
 RAIL = {
-    "projects": (False, f"{proj_count} videos" if proj_count else "start your first video"),
+    "projects": (False, f"{proj_count} video{'s' if proj_count != 1 else ''}" if proj_count else "start your first video"),
     "music": (n > 0 and not job_now["running"], f"generating {job_now['done']}/{job_now['total']}" if job_now["running"]
               else (f"{n} tracks · {mins} min" if n else "no tracks yet")),
     "playlist": (n > 0, "titles ready" if n else "after the music"),
     "fix images": (fixed_n > 0, f"{fixed_n} made 16:9" if fixed_n else "optional"),
     "thumbnail": (cover_done, "saved" if cover_done else ("in progress" if step == "thumbnail" else "not made yet")),
-    "youtube": (yt_done, "upload.txt saved" if yt_done else "title, description, tags"),
+    "video": (video_done and yt_done, "ready to upload" if (video_done and yt_done) else
+              (f"making it {int(render_now['progress'] * 100)}%" if render_now["running"] else
+               ("write the text" if video_done else "make the video"))),
 }
 with rail_slot:
     for i, s in enumerate(STEPS):
         done, sub = RAIL[s]
-        st.button(f"{'✓' if done else ('•' if i == 0 else i)}   {s}", key=f"step_{s}", use_container_width=True,
+        st.button(f"{'✓' if done else ('•' if i == 0 else i)}   {s}", key=f"step_{s}", width="stretch",
                   type="primary" if s == step else "secondary", on_click=go, args=(s,))
         st.markdown(f'<div class="sg-step-sub{" done" if done else ""}">{sub}</div>', unsafe_allow_html=True)

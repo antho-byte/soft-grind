@@ -90,10 +90,14 @@ def stage(info: dict) -> str:
     """Where a video is in the flow, in the app's own words."""
     if info["job"]["running"]:
         return "making music"
+    if info.get("render", {}).get("running"):
+        return "making the video"
     if info["tracks"] == 0:
         return "new"
     if not info["has_thumbnail"]:
         return "needs a thumbnail"
+    if not info["has_video"]:
+        return "needs the video"
     if not info["has_upload"]:
         return "needs youtube text"
     return "ready"
@@ -109,7 +113,9 @@ def list_projects(root: Path) -> list[dict]:
         m = meta(p)
         info = {"name": p.name, "path": p, "tracks": n, "seconds": secs, "cover": cover_path(p),
                 "quote": m.get("quote", ""), "playlist_name": m.get("playlist_name", ""),
-                "has_thumbnail": (p / "thumbnail.png").exists(), "has_upload": (p / "upload.txt").exists(),
+                "has_thumbnail": (p / "thumbnail.png").exists(), "has_upload": bool(m.get("title")) and (p / "upload.txt").exists(),
+                "has_video": (p / "video.mp4").exists(), "title": m.get("title", ""), "schedule": m.get("schedule", ""),
+                "render": render_status(p),
                 "job": job_status(p), "updated": max([f.stat().st_mtime for f in p.rglob("*") if f.is_file()] or [p.stat().st_mtime])}
         info["stage"] = stage(info)
         out.append(info)
@@ -124,6 +130,11 @@ def start_music_job(pdir: Path, spec: dict, token: str = "") -> None:
     (pdir / CANCEL).unlink(missing_ok=True)
     write_json(pdir / JOB, {"state": "queued", "spec": spec, "task_ids": [], "done_requests": 0,
                             "total_requests": spec["n_req"], "message": "queued", "updated": time.time()})
+    _spawn("soft_grind.worker", pdir, JOB, token)
+
+
+def _spawn(module: str, pdir: Path, jobfile: str, token: str = "") -> None:
+    """Start `python -m <module> <job file>` as its own process that outlives page reloads."""
     env = dict(os.environ)
     if token:
         env["SOFTGRIND_SUNO_TOKEN"] = token
@@ -132,9 +143,47 @@ def start_music_job(pdir: Path, spec: dict, token: str = "") -> None:
         kw["creationflags"] = 0x00000008 | 0x00000200      # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     else:
         kw["start_new_session"] = True
-    with open(pdir / "job.log", "ab") as log:
-        subprocess.Popen([sys.executable, "-m", "soft_grind.worker", str(pdir / JOB)], cwd=str(brand.ROOT), env=env,
+    with open(pdir / f"{jobfile.split('.')[0]}.log", "ab") as log:
+        subprocess.Popen([sys.executable, "-m", module, str(pdir / jobfile)], cwd=str(brand.ROOT), env=env,
                          stdout=log, stderr=log, stdin=subprocess.DEVNULL, close_fds=True, **kw)
+
+
+RENDER = "render.json"
+
+
+def render_status(pdir: Path) -> dict:
+    j = read_json(Path(pdir) / RENDER)
+    if not j:
+        return {"state": "none", "running": False, "progress": 0.0, "message": "", "error": ""}
+    fresh = time.time() - j.get("updated", 0) < STALE_AFTER
+    state = j.get("state", "none")
+    running = state in ("queued", "running") and fresh
+    if state in ("queued", "running") and not fresh:
+        state = "interrupted"
+    return {"state": state, "running": running, "progress": float(j.get("progress", 0.0)),
+            "message": j.get("message", ""), "error": j.get("error", "")}
+
+
+def start_render(pdir: Path, crossfade: float = 4.0, fade_in: float = 3.0, fade_out: float = 6.0) -> None:
+    pdir = Path(pdir)
+    if render_status(pdir)["running"]:
+        raise RuntimeError("The video is already being made.")
+    write_json(pdir / RENDER, {"state": "queued", "progress": 0.0, "message": "queued", "updated": time.time(),
+                               "spec": {"crossfade": crossfade, "fade_in": fade_in, "fade_out": fade_out}})
+    _spawn("soft_grind.render", pdir, RENDER)
+
+
+def next_free_slot(taken: set[str], now=None, hour: int = 15):
+    """Next Monday / Wednesday / Friday at `hour`:00 (Amsterdam time as you read it) that no other video uses."""
+    import datetime as dt
+    now = now or dt.datetime.now()
+    day = now.date()
+    for _ in range(120):
+        slot = dt.datetime.combine(day, dt.time(hour, 0))
+        if day.weekday() in (0, 2, 4) and slot > now and slot.strftime("%Y-%m-%d %H:%M") not in taken:
+            return slot
+        day += dt.timedelta(days=1)
+    return now
 
 
 def cancel_job(pdir: Path) -> None:

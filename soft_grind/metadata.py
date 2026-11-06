@@ -86,6 +86,7 @@ def validate(title: str, tracks: list[dict], pinned: str) -> list[str]:
     return issues
 
 
-def upload_txt(title: str, description: str, tags: list[str], pinned: str) -> str:
+def upload_txt(title: str, description: str, tags: list[str], pinned: str, schedule: str = "") -> str:
+    when = f"scheduled for {schedule} (Amsterdam time)" if schedule else "scheduled (Mon/Wed/Fri 15:00 Amsterdam)"
     return (f"TITLE\n{title}\n\nDESCRIPTION\n{description}\n\nTAGS\n{', '.join(tags)}\n\n"
-            f"PINNED COMMENT\n{pinned}\n\nVISIBILITY\nprivate / scheduled (Mon/Wed/Fri 15:00 Amsterdam)\n")
+            f"PINNED COMMENT\n{pinned}\n\nVISIBILITY\nprivate, {when}\n")
