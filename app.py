@@ -9,7 +9,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import ai, brand, fixes, headlines, imagegen, library, metadata, names, playlist, projects, security, settings, texts, theme, thumbnail as T, video
+from soft_grind import ai, brand, fixes, headlines, imagegen, library, metadata, names, playlist, projects, health, security, settings, texts, theme, thumbnail as T, video
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
@@ -38,6 +38,7 @@ TITLES = {
     "fix images": ("fix the photos.", "turn vertical photos into 16:9."),
     "thumbnail": ("the cover.", "one image, one quote, one logo."),
     "video": ("the video.", "watch it, check the words, pick a day to publish."),
+    "setup": ("check the setup.", "keys, folders and background jobs: is everything ready to make videos?"),
 }
 st.session_state.setdefault("step", "projects")
 
@@ -226,6 +227,8 @@ with st.sidebar:
                     st.success("moved: " + ", ".join(moved))
                 if skipped:
                     st.warning("left in place (already has files in the new folder): " + ", ".join(skipped))
+        st.button("check my setup", on_click=go, args=("setup",), width="stretch",
+                  help="Tests the keys, folders, video tool and background jobs, and tells you what to fix.")
         st.caption("security")
         pw_new = st.text_input("app password", type="password", placeholder="set or change the password (8+ characters)",
                                help="Asked every time the app opens. Stored as a scrambled hash, not as text.")
@@ -265,6 +268,26 @@ imgs_dir = pdir / "images"
 
 step = st.session_state["step"]
 theme.page_title("all videos" if step == "projects" else (f"videos › {name}" if step == "video" else f"{name} / {step}"), *TITLES[step])
+
+if step == "setup":
+    with st.container(key="card_setup"):
+        st.caption("Each key is tested with a free question that does not make anything, so this costs nothing. "
+                   "The AI key uses a few words of text (a fraction of a cent).")
+        if st.button("check again", type="primary"):
+            st.session_state.pop("_setup_results", None)
+        if "_setup_results" not in st.session_state:
+            with st.spinner("checking…"):
+                st.session_state["_setup_results"] = health.run_all(token, img_token, ai_token, ai_model, SAVED)
+        label = {"ok": "ok", "warn": "check", "fail": "fix"}
+        for r in st.session_state["_setup_results"]:
+            st.markdown(f'<div class="sg-chk"><span class="sg-badge {r["status"]}">{label[r["status"]]}</span>'
+                        f'<b>{r["name"]}</b><span class="d">{r["detail"]}</span></div>', unsafe_allow_html=True)
+    with st.container(key="card_diag"):
+        st.markdown("**diagnostics**")
+        st.caption("Something not working? Copy this and send it to me. Keys and passwords are removed automatically.")
+        diag = health.diagnostics([token, img_token, ai_token])
+        st.code(diag, language=None)
+        st.download_button("download diagnostics.txt", diag, "diagnostics.txt")
 
 if step == "projects":
     h1, h2 = st.columns([4, 1])

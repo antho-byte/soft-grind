@@ -47,6 +47,11 @@ h1,h2,h3{font-family:'Abril Fatface',serif!important;font-weight:400!important;c
 /* cards */
 [class*="st-key-card"]{background:#fff;border-radius:22px;padding:26px 28px!important;box-shadow:0 10px 30px rgba(20,24,82,.07);margin-bottom:18px}
 
+.sg-chk{display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid rgba(20,24,82,.08)}
+.sg-chk b{min-width:190px;color:var(--indigo)}
+.sg-chk span.d{color:var(--muted)}
+.sg-badge{display:inline-block;min-width:54px;text-align:center;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
+.sg-badge.ok{background:#DDF1E6;color:#17614A}.sg-badge.warn{background:#FFF0D9;color:#7A4B00}.sg-badge.fail{background:#FFD9D2;color:#8A2A1B}
 .sg-saved{font-size:13px;font-weight:600;color:#17614A}
 .sg-unsaved{font-size:13px;font-weight:600;color:#9A5B00}
 
