@@ -10,7 +10,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import ai, brand, headlines, imagegen, library, metadata, names, playlist, projects, settings, texts, theme, thumbnail as T
+from soft_grind import ai, brand, fixes, headlines, imagegen, library, metadata, names, playlist, projects, settings, texts, theme, thumbnail as T
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
@@ -67,7 +67,15 @@ def used_quotes(exclude=""):
 def set_headline(h):
     st.session_state[f"_s_{name}_quote"] = h
     st.session_state[f"_sv_{name}"] = st.session_state.get(f"_sv_{name}", 0) + 1
-    projects.set_meta(pdir, quote=h)
+    projects.set_meta(pdir, quote=h, quote_placeholder=False)
+
+
+def ensure_quote():
+    """A project never starts from a shared default: give it a headline nobody else has."""
+    m = projects.meta(pdir)
+    if not m.get("quote"):
+        h = headlines.suggest(m.get("mood") or "calm", m.get("topic") or [], used_quotes(name), 1)[0]
+        projects.set_meta(pdir, quote=h, quote_placeholder=True)
 
 
 def make_headline(analysis, mood, topic, use_ai=True):
@@ -248,6 +256,17 @@ if step == "projects":
                                 token, ai_token if ai_on else "")
             st.toast(f"started {nm}")
             st.rerun()
+    dups = fixes.duplicates(PROJECTS)
+    if dups:
+        with st.expander(f"{sum(len(n) - 1 for _, n in dups)} videos share a headline with another video", expanded=True):
+            for q, nms in dups:
+                st.markdown(f"**{q}** is used by {', '.join(nms)}")
+            st.caption("The oldest video of each group keeps its headline. The others get a new one: the title, the first line of the "
+                       "description, upload.txt and the thumbnail picture are updated too. Nothing else changes.")
+            if st.button("give each of them a new headline", type="primary"):
+                rep = fixes.make_unique(PROJECTS)
+                st.toast("updated: " + ", ".join(f"{r['name']} → {r['new']}" for r in rep))
+                st.rerun()
     PILL = {"making music": "#E7E5FF", "new": "#EFEFEF", "needs a thumbnail": "#FFF0D9", "needs the video": "#FFF0D9",
             "making the video": "#E7E5FF", "needs youtube text": "#FFE4EE", "ready": "#DDF1E6",
             "making it": "#E7E5FF", "needs attention": "#FFD9D2"}
@@ -590,6 +609,7 @@ if step == "fix images":
                                 st.success(f"saved {out_path.name}: now pick it in the thumbnail step")
 
 if step == "thumbnail":
+    ensure_quote()
     pm_ = projects.meta(pdir)
     topic_ = pm_.get("topic") or brand.SCENES[:6]
     mood_ = pm_.get("mood") or "calm"
@@ -652,6 +672,8 @@ if step == "thumbnail":
             with c1:
                 quote = sticky(st.text_input, "quote", "quote", pm_.get("quote") or "you've got this.")
                 for w in T.check_quote(quote): st.caption(f":orange[{w}]")
+                if quote in used_quotes(name):
+                    st.caption(":orange[another video already uses this headline: press new headline]")
                 hb1, hb2 = st.columns(2)
                 hb1.button("new headline", on_click=lambda: st.session_state.update(_headline_req="random"),
                            help="A fresh headline that fits the mood and has not been used in another video.")
@@ -683,7 +705,7 @@ if step == "thumbnail":
             if b1.button("save to project", type="primary"):
                 pdir.mkdir(parents=True, exist_ok=True)
                 thumb.save(pdir / "thumbnail.png"); still.save(pdir / "still.png")
-                projects.set_meta(pdir, quote=quote)
+                projects.set_meta(pdir, quote=quote, quote_placeholder=False)
                 st.success(f"saved thumbnail.png + still.png in {pdir}")
             b2.download_button("download both", zbuf.getvalue(), "softgrind_cover.zip", "application/zip")
     with st.expander("bulk: many images at once (thumbnails + stills + contact sheet)"):
@@ -710,6 +732,7 @@ if step == "thumbnail":
             st.download_button("download zip", zbuf.getvalue(), "softgrind_bulk.zip", "application/zip")
 
 if step == "video":
+    ensure_quote()
     saved = projects.meta(pdir)
     video_path = pdir / "video.mp4"
     left, right = st.columns([1, 1.5], gap="large")
@@ -746,7 +769,8 @@ if step == "video":
             bt2.button("fill from the settings above", on_click=lambda: st.session_state.update(_regen_req=name, _regen_mode="template"))
             st.caption("Either button replaces the text in the form. Edit it afterwards, then press save.")
         if (pl, sc, quote_m) != (saved.get("playlist_name"), saved.get("scenario"), saved.get("quote")):
-            projects.set_meta(pdir, playlist_name=pl, scenario=sc, quote=quote_m)
+            projects.set_meta(pdir, playlist_name=pl, scenario=sc, quote=quote_m,
+                              quote_placeholder=saved.get("quote_placeholder", False) and quote_m == saved.get("quote"))
             saved = projects.meta(pdir)
         gen = {"title": metadata.make_title(tstyle, quote_m, pl, sc, emoji),
                "description": metadata.make_description(quote_m, subline_m, scene, tracks, use, artist, question,

@@ -75,8 +75,11 @@ def create_project(root: Path) -> str:
     pd = Path(root) / nm
     pd.mkdir(parents=True, exist_ok=True)
     taken = [m for m in (meta(d).get("playlist_name") for d in project_dirs(root)) if m]
+    from . import headlines
+    used_quotes = {meta(d).get("quote", "") for d in project_dirs(root)}
     set_meta(pd, created=time.time(), scenario=random.choice(brand.SCENARIOS),
-             playlist_name=names.suggest([random.choice(brand.SCENES)], 1, taken, "calm")[0])
+             playlist_name=names.suggest([random.choice(brand.SCENES)], 1, taken, "calm")[0],
+             quote=headlines.suggest("calm", [], used_quotes, 1)[0], quote_placeholder=True)   # replaced once an image is chosen
     return nm
 
 

@@ -65,3 +65,31 @@ def test_template_rotation_is_unique_across_videos():
         assert (p["suffix"], p["subline"], p["pinned"]) not in seen; seen.append((p["suffix"], p["subline"], p["pinned"]))
         for k in texts.KEYS: prev[k].append(p[k])
     assert metadata.make_title("quote", "hello.") == "hello. | 80s japanese city pop to work & study to"        # default unchanged
+
+
+def test_new_projects_never_share_a_default_headline_and_duplicates_are_repaired():
+    import tempfile, time as _t
+    from PIL import Image
+    from soft_grind import fixes, projects, thumbnail as T
+    root = Path(tempfile.mkdtemp())
+    names = [projects.create_project(root) for _ in range(6)]
+    quotes = [projects.meta(root / n)["quote"] for n in names]
+    assert len(set(quotes)) == 6 and all(projects.meta(root / n)["quote_placeholder"] for n in names) and not T.check_quote(quotes[0])
+    # three old videos that all got "you've got this." (the bug), one of them with a thumbnail, title and upload.txt
+    old = Path(tempfile.mkdtemp())
+    for i, n in enumerate(("mix-001", "mix-002", "mix-003")):
+        d = old / n; (d / "images").mkdir(parents=True)
+        projects.set_meta(d, quote="you've got this.", created=_t.time() + i, mood="calm", topic=["rainy window"],
+                          title="you've got this. | city pop to focus to", description="you've got this. soft line.\n\ntracklist\n00:00 a",
+                          tags="city pop, lofi", pinned="what are you building?", schedule="2026-11-09 15:00")
+        Image.new("RGB", (1920, 1080), (90, 90, 200)).save(d / "images" / "x_16x9.png")
+        (d / "upload.txt").write_text("old"); T.render_thumbnail(Image.open(d / "images" / "x_16x9.png"), "you've got this.").save(d / "thumbnail.png")
+    assert fixes.duplicates(old) == [("you've got this.", ["mix-001", "mix-002", "mix-003"])]
+    before = (old / "mix-003" / "thumbnail.png").read_bytes()
+    rep = fixes.make_unique(old)
+    assert [r["name"] for r in rep] == ["mix-002", "mix-003"] and all(r["thumbnail_redrawn"] for r in rep)
+    q = [projects.meta(old / n)["quote"] for n in ("mix-001", "mix-002", "mix-003")]
+    assert q[0] == "you've got this." and len(set(q)) == 3 and fixes.duplicates(old) == []          # the oldest keeps it
+    m3 = projects.meta(old / "mix-003")
+    assert m3["title"] == f"{q[2]} | city pop to focus to" and m3["description"].startswith(q[2] + " soft line.") and m3["quote_placeholder"] is False
+    assert q[2] in (old / "mix-003" / "upload.txt").read_text() and (old / "mix-003" / "thumbnail.png").read_bytes() != before

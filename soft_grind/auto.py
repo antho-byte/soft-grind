@@ -85,11 +85,12 @@ def run(job_path: str) -> None:
 
         # 3 headline
         check_cancel(); at(2, 0.0, "writing the headline")
-        if not projects.meta(pdir).get("quote"):
+        if not projects.meta(pdir).get("quote") or projects.meta(pdir).get("quote_placeholder"):
             analysis = (library.load_db().get(li) or {}).get("analysis") or {"description": "", "scenes": list(topic)[:2]}
             used_q = {projects.meta(d).get("quote", "") for d in projects.project_dirs(root) if d != pdir}
+            used_q.add(projects.meta(pdir).get("quote", ""))                  # not the placeholder either
             h, _ = headlines.pick(analysis, mood, list(topic), used_q, ai_client)
-            projects.set_meta(pdir, quote=h)
+            projects.set_meta(pdir, quote=h, quote_placeholder=False)
 
         # 4 thumbnail + still
         check_cancel(); at(3, 0.0, "making the thumbnail")

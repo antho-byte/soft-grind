@@ -46,6 +46,7 @@ def test_whole_video_and_second_video_differs():
         assert len(projects.audio_files(pd / "tracks")) == 4
         for f in ("thumbnail.png", "still.png", "video.mp4", "upload.txt"): assert (pd / f).exists(), f
         assert m["quote"] and m["title"] and m["description"] and m["tags"] and m["pinned"] and m["schedule"] and m["library_image"]
+        assert m["quote_placeholder"] is False                                  # replaced by a headline that fits the image
         assert "00:00" in m["description"] and (pd / "images" / (Path(m["library_image"]).stem + "_16x9.png")).exists()
     (a, ma), (b, mb) = out
     assert ma["quote"] != mb["quote"] and ma["library_image"] != mb["library_image"] and ma["schedule"] != mb["schedule"]
