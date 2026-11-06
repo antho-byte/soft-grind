@@ -46,12 +46,7 @@ def sticky(widget, label, key, default, **kw):
 
 def new_video():
     """A fresh project: next free name, a new unique playlist name, nothing carried over from the last video."""
-    nm = projects.next_project_name(PROJECTS)
-    pd = PROJECTS / nm
-    pd.mkdir(parents=True, exist_ok=True)
-    taken = [p["playlist_name"] for p in projects.list_projects(PROJECTS)]
-    playlist_name = names.suggest([random.choice(brand.SCENES)], 1, taken, "calm")[0]
-    projects.set_meta(pd, created=time.time(), playlist_name=playlist_name, scenario=random.choice(brand.SCENARIOS))
+    nm = projects.create_project(PROJECTS)
     st.session_state.update(project=nm, step="music", tracks=[], fix_results={})
     for k in ("_style_before", "_ai_note", "_job_was_running"):
         st.session_state.pop(k, None)
@@ -60,7 +55,8 @@ def new_video():
 def open_project(nm, stage_name):
     st.session_state.update(project=nm, tracks=[], fix_results={}, step={
         "new": "music", "making music": "music", "needs a thumbnail": "thumbnail", "needs the video": "video",
-        "making the video": "video", "needs youtube text": "video", "ready": "video"}.get(stage_name, "music"))
+        "making the video": "video", "needs youtube text": "video", "ready": "video", "making it": "video",
+        "needs attention": "library"}.get(stage_name, "music"))
     st.session_state.pop("_job_was_running", None)
 
 
@@ -225,8 +221,36 @@ theme.page_title("all videos" if step == "projects" else (f"videos › {name}" i
 if step == "projects":
     h1, h2 = st.columns([4, 1])
     h2.button("new video", type="primary", on_click=new_video, width="stretch")
+    with st.expander("make a whole video automatically", expanded=True):
+        st.caption("One button: the app makes the music, picks an image from your library, writes the headline, builds the thumbnail "
+                   "and the video, and writes the YouTube text. You check it afterwards.")
+        f1, f2 = st.columns(2)
+        auto_scenes = f1.multiselect("topic: scenes for the music and the picture", brand.SCENES, brand.SCENES[:4], key="auto_scenes")
+        auto_sound = f2.selectbox("sound", list(brand.PRESETS), key="auto_sound")
+        g1, g2, g3 = st.columns(3)
+        LENGTHS = {"about 1 hour (10 songs)": 10, "about 2 hours (20 songs)": 20, "short test (4 songs)": 4}
+        auto_len = g1.selectbox("length", list(LENGTHS), key="auto_len")
+        auto_names = g2.selectbox("track names", names.STYLES, key="auto_names")
+        ai_on = bool(ai_token and not ai_mock)
+        auto_improve = g3.checkbox("AI improves the music prompt", value=ai_on, disabled=not ai_on, key="auto_improve")
+        n_songs = LENGTHS[auto_len]
+        st.caption(f"about {n_songs / 2 * 0.28 + (0.03 if ai_on else 0):.1f} credits · runs in the background, so you can leave the page · "
+                   "needs your image library to be looked at (library step) · start one video at a time for the first tries")
+        if st.button("make the video", type="primary", disabled=not (mock or token) or not auto_scenes):
+            nm = projects.create_project(PROJECTS)
+            pd_ = PROJECTS / nm
+            mood_key_ = "groovy" if "groovy" in auto_sound else "calm"
+            projects.set_meta(pd_, topic=auto_scenes, mood=mood_key_, style=brand.PRESETS[auto_sound])
+            projects.start_auto(pd_, {"style": brand.PRESETS[auto_sound], "scenes": auto_scenes, "n_req": n_songs // 2, "minutes": 6.0,
+                                      "model": brand.MODELS[0], "name_style": auto_names, "mood_key": mood_key_, "mock": mock,
+                                      "improve_prompt": bool(auto_improve and ai_on), "use_ai": ai_on, "ai_model": ai_model,
+                                      "crossfade": crossfade, "fade_in": 3.0, "fade_out": 6.0},
+                                token, ai_token if ai_on else "")
+            st.toast(f"started {nm}")
+            st.rerun()
     PILL = {"making music": "#E7E5FF", "new": "#EFEFEF", "needs a thumbnail": "#FFF0D9", "needs the video": "#FFF0D9",
-            "making the video": "#E7E5FF", "needs youtube text": "#FFE4EE", "ready": "#DDF1E6"}
+            "making the video": "#E7E5FF", "needs youtube text": "#FFE4EE", "ready": "#DDF1E6",
+            "making it": "#E7E5FF", "needs attention": "#FFD9D2"}
 
     def grid():
         items = projects.list_projects(PROJECTS)
@@ -252,11 +276,24 @@ if step == "projects":
                     st.progress(info["job"]["progress"], text=f"{info['job']['done']} of {info['job']['total']} requests")
                 if info["render"]["running"]:
                     st.progress(info["render"]["progress"], text="making the video")
+                au = info["auto"]
+                if au["running"]:
+                    st.progress(au["progress"], text=f"step {au['step'] + 1} of {len(projects.AUTO_STEPS)} · {au['step_name']}")
+                    st.caption(au["message"])
+                    st.button("cancel", key=f"cancel_auto_{info['name']}", on_click=projects.cancel_job, args=(info["path"],))
+                elif au["state"] in ("needs_attention", "failed", "interrupted"):
+                    st.warning(au["error"] or "The job stopped unexpectedly (window closed or computer asleep). Press continue.")
+                    if st.button("continue", key=f"resume_auto_{info['name']}"):
+                        try:
+                            projects.start_auto(info["path"], projects.read_json(info["path"] / projects.AUTO)["spec"], token, ai_token)
+                            st.rerun()
+                        except RuntimeError as e:
+                            st.error(str(e))
                 if st.button("open", key=f"open_{info['name']}"):
                     open_project(info["name"], info["stage"])
                     st.rerun()                                           # full rerun, so the page switches
 
-    running_any = any(p["job"]["running"] or p["render"]["running"] for p in projects.list_projects(PROJECTS))
+    running_any = any(p["job"]["running"] or p["render"]["running"] or p["auto"]["running"] for p in projects.list_projects(PROJECTS))
     st.fragment(run_every=5 if running_any else None)(grid)()
 
 if step == "music":

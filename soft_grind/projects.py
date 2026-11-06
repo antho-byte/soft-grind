@@ -47,6 +47,19 @@ def next_project_name(root: Path, prefix: str = "mix") -> str:
     return f"{prefix}-{max(nums, default=0) + 1:03d}"
 
 
+def create_project(root: Path) -> str:
+    """Next free name, a unique playlist name and a scenario. Returns the project name."""
+    import random
+    from . import names
+    nm = next_project_name(root)
+    pd = Path(root) / nm
+    pd.mkdir(parents=True, exist_ok=True)
+    taken = [m for m in (meta(d).get("playlist_name") for d in Path(root).iterdir() if d.is_dir()) if m]
+    set_meta(pd, created=time.time(), scenario=random.choice(brand.SCENARIOS),
+             playlist_name=names.suggest([random.choice(brand.SCENES)], 1, taken, "calm")[0])
+    return nm
+
+
 def audio_files(tracks_dir: Path) -> list[Path]:
     d = Path(tracks_dir)
     return sorted(p for p in d.iterdir() if p.suffix.lower() in playlist.AUDIO_EXT) if d.is_dir() else []
@@ -88,6 +101,10 @@ def job_status(pdir: Path) -> dict:
 
 def stage(info: dict) -> str:
     """Where a video is in the flow, in the app's own words."""
+    if info.get("auto", {}).get("running"):
+        return "making it"
+    if info.get("auto", {}).get("state") == "needs_attention":
+        return "needs attention"
     if info["job"]["running"]:
         return "making music"
     if info.get("render", {}).get("running"):
@@ -115,7 +132,7 @@ def list_projects(root: Path) -> list[dict]:
                 "quote": m.get("quote", ""), "playlist_name": m.get("playlist_name", ""),
                 "has_thumbnail": (p / "thumbnail.png").exists(), "has_upload": bool(m.get("title")) and (p / "upload.txt").exists(),
                 "has_video": (p / "video.mp4").exists(), "title": m.get("title", ""), "schedule": m.get("schedule", ""),
-                "render": render_status(p),
+                "render": render_status(p), "auto": auto_status(p),
                 "job": job_status(p), "updated": max([f.stat().st_mtime for f in p.rglob("*") if f.is_file()] or [p.stat().st_mtime])}
         info["stage"] = stage(info)
         out.append(info)
@@ -171,6 +188,37 @@ def start_render(pdir: Path, crossfade: float = 4.0, fade_in: float = 3.0, fade_
     write_json(pdir / RENDER, {"state": "queued", "progress": 0.0, "message": "queued", "updated": time.time(),
                                "spec": {"crossfade": crossfade, "fade_in": fade_in, "fade_out": fade_out}})
     _spawn("soft_grind.render", pdir, RENDER)
+
+
+AUTO = "auto.json"
+AUTO_STEPS = ["making the music", "choosing the image", "writing the headline", "making the thumbnail", "building the video",
+              "writing the youtube text"]
+
+
+def auto_status(pdir: Path) -> dict:
+    j = read_json(Path(pdir) / AUTO)
+    if not j:
+        return {"state": "none", "running": False, "progress": 0.0, "message": "", "error": "", "step": -1, "step_name": ""}
+    fresh = time.time() - j.get("updated", 0) < STALE_AFTER
+    state = j.get("state", "none")
+    if state in ("queued", "running") and not fresh:
+        state = "interrupted"
+    step = j.get("step", 0)
+    return {"state": state, "running": state in ("queued", "running"), "progress": float(j.get("progress", 0.0)),
+            "message": j.get("message", ""), "error": j.get("error", ""), "step": step,
+            "step_name": AUTO_STEPS[step] if 0 <= step < len(AUTO_STEPS) else ""}
+
+
+def start_auto(pdir: Path, spec: dict, suno_token: str = "", ai_token: str = "") -> None:
+    """Make a whole video in the background: music, image, headline, thumbnail, video, text. Safe to start again to resume."""
+    pdir = Path(pdir); pdir.mkdir(parents=True, exist_ok=True)
+    if auto_status(pdir)["running"]:
+        raise RuntimeError("This video is already being made.")
+    (pdir / CANCEL).unlink(missing_ok=True)
+    prev = read_json(pdir / AUTO)                                     # keep the list of paid requests across a resume
+    write_json(pdir / AUTO, {"state": "queued", "spec": spec, "step": 0, "progress": 0.0, "message": "queued", "updated": time.time(),
+                             "task_ids": prev.get("task_ids", [])})
+    _spawn("soft_grind.auto", pdir, AUTO, {"SOFTGRIND_SUNO_TOKEN": suno_token, "SOFTGRIND_AI_TOKEN": ai_token})
 
 
 def next_free_slot(taken: set[str], now=None, hour: int = 15):

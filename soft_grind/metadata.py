@@ -90,3 +90,11 @@ def upload_txt(title: str, description: str, tags: list[str], pinned: str, sched
     when = f"scheduled for {schedule} (Amsterdam time)" if schedule else "scheduled (Mon/Wed/Fri 15:00 Amsterdam)"
     return (f"TITLE\n{title}\n\nDESCRIPTION\n{description}\n\nTAGS\n{', '.join(tags)}\n\n"
             f"PINNED COMMENT\n{pinned}\n\nVISIBILITY\nprivate, {when}\n")
+
+
+def default_scene_text(scenes: list[str]) -> str:
+    """Two sentences for the description when nobody wrote them (edited later on the video page)."""
+    if not scenes:
+        return "a quiet desk, a warm lamp and the city glowing outside. slow, soft grooves that keep you company while you work."
+    first = ", ".join(scenes[:2]) if len(scenes) > 1 else scenes[0]
+    return f"{first}: slow, soft grooves that keep you company while you work. calm enough to focus, warm enough to stay."

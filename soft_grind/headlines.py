@@ -54,3 +54,16 @@ def suggest(mood: str, scenes: list[str], used=(), n: int = 1, seed=None) -> lis
             pick = f"day {len(taken) + 1}, softly."
         taken.add(pick.lower()); out.append(pick)
     return out
+
+
+def pick(analysis: dict, mood: str, topic: list[str], used=(), ai_client=None) -> tuple[str, float]:
+    """One headline that fits the image: asked from the AI when a client is given, else from the pools. Never one in `used`."""
+    scenes = [s for s in analysis.get("scenes", []) if s in topic] or analysis.get("scenes", []) or list(topic)[:2]
+    if ai_client is not None:
+        try:
+            opts, cost = ai_client.suggest_headlines(analysis.get("description", ""), mood, scenes, used)
+            if opts:
+                return opts[0], cost
+        except Exception:
+            pass
+    return suggest(mood, scenes, used, 1)[0], 0.0
