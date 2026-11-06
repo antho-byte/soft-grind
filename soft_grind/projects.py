@@ -130,21 +130,21 @@ def start_music_job(pdir: Path, spec: dict, token: str = "") -> None:
     (pdir / CANCEL).unlink(missing_ok=True)
     write_json(pdir / JOB, {"state": "queued", "spec": spec, "task_ids": [], "done_requests": 0,
                             "total_requests": spec["n_req"], "message": "queued", "updated": time.time()})
-    _spawn("soft_grind.worker", pdir, JOB, token)
+    _spawn("soft_grind.worker", pdir, JOB, {"SOFTGRIND_SUNO_TOKEN": token})
 
 
-def _spawn(module: str, pdir: Path, jobfile: str, token: str = "") -> None:
-    """Start `python -m <module> <job file>` as its own process that outlives page reloads."""
+def _spawn(module: str, workdir: Path, jobfile: str, env_extra: dict | None = None) -> None:
+    """Start `python -m <module> <workdir>/<jobfile>` as its own process that outlives page reloads."""
     env = dict(os.environ)
-    if token:
-        env["SOFTGRIND_SUNO_TOKEN"] = token
+    env.update({k: v for k, v in (env_extra or {}).items() if v})
     kw = {}
     if sys.platform == "win32":
         kw["creationflags"] = 0x00000008 | 0x00000200      # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     else:
         kw["start_new_session"] = True
-    with open(pdir / f"{jobfile.split('.')[0]}.log", "ab") as log:
-        subprocess.Popen([sys.executable, "-m", module, str(pdir / jobfile)], cwd=str(brand.ROOT), env=env,
+    Path(workdir).mkdir(parents=True, exist_ok=True)
+    with open(Path(workdir) / f"{jobfile.split('.')[0]}.log", "ab") as log:
+        subprocess.Popen([sys.executable, "-m", module, str(Path(workdir) / jobfile)], cwd=str(brand.ROOT), env=env,
                          stdout=log, stderr=log, stdin=subprocess.DEVNULL, close_fds=True, **kw)
 
 

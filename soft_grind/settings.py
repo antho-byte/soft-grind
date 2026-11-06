@@ -13,13 +13,39 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 DEFAULT_PROJECTS = DATA_DIR / "projects"
 
 
+LIBRARY_FILE = DATA_DIR / "library.json"
+LIBRARY_JOB = DATA_DIR / "library_job.json"
+THUMBS_DIR = DATA_DIR / "library_thumbs"
+
+
+def _read_settings() -> dict:
+    try:
+        return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_settings(**kw) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    cfg = _read_settings(); cfg.update(kw)
+    SETTINGS_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+
 def projects_dir() -> Path:
     """Where projects are saved: the folder chosen in the app, else <data folder>/projects."""
-    try:
-        chosen = json.loads(SETTINGS_FILE.read_text(encoding="utf-8")).get("projects_dir")
-    except (OSError, ValueError):
-        chosen = None
+    chosen = _read_settings().get("projects_dir")
     return Path(chosen) if chosen else DEFAULT_PROJECTS
+
+
+def library_dir() -> Path | None:
+    chosen = _read_settings().get("library_dir")
+    return Path(chosen) if chosen else None
+
+
+def save_library_dir(text: str) -> Path:
+    p = Path(text.strip().strip('"').strip("'")).expanduser()
+    _write_settings(library_dir=str(p))
+    return p
 
 
 def save_projects_dir(text: str) -> Path:
@@ -29,8 +55,7 @@ def save_projects_dir(text: str) -> Path:
     if (p / "app.py").exists():
         p = p / "projects"
     p.mkdir(parents=True, exist_ok=True)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    SETTINGS_FILE.write_text(json.dumps({"projects_dir": str(p)}, indent=2), encoding="utf-8")
+    _write_settings(projects_dir=str(p))
     return p
 
 

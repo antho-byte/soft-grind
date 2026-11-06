@@ -10,18 +10,19 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import ai, brand, imagegen, metadata, names, playlist, projects, settings, theme, thumbnail as T
+from soft_grind import ai, brand, headlines, imagegen, library, metadata, names, playlist, projects, settings, theme, thumbnail as T
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
 PROJECTS = settings.projects_dir()
 SAVED = settings.load_keys()
 
-STEPS = ["projects", "music", "playlist", "fix images", "thumbnail", "video"]
+STEPS = ["projects", "music", "playlist", "library", "fix images", "thumbnail", "video"]
 TITLES = {
     "projects": ("your videos.", "every video you made, with its cover. open one to keep going."),
     "music": ("make the music.", "pick a sound, press generate, get instrumental tracks."),
     "playlist": ("the playlist.", "pull in your tracks, check the titles and the order."),
+    "library": ("the images.", "your folder of images: let the app look at them, then match them to your videos."),
     "fix images": ("fix the photos.", "turn vertical photos into 16:9."),
     "thumbnail": ("the cover.", "one image, one quote, one logo."),
     "video": ("the video.", "watch it, check the words, pick a day to publish."),
@@ -37,7 +38,8 @@ def sticky(widget, label, key, default, **kw):
     """A widget that remembers its value when you leave this step and come back (separately for each project)."""
     proj = st.session_state.get("project", "")
     sk = f"_s_{proj}_{key}"
-    val = widget(label, value=st.session_state.get(sk, default), key=f"w_{proj}_{key}", **kw)
+    ver = st.session_state.get(f"_sv_{proj}", 0)             # bumped when code (not you) sets a value, e.g. a new headline
+    val = widget(label, value=st.session_state.get(sk, default), key=f"w_{proj}_{key}_{ver}", **kw)
     st.session_state[sk] = val
     return val
 
@@ -60,6 +62,59 @@ def open_project(nm, stage_name):
         "new": "music", "making music": "music", "needs a thumbnail": "thumbnail", "needs the video": "video",
         "making the video": "video", "needs youtube text": "video", "ready": "video"}.get(stage_name, "music"))
     st.session_state.pop("_job_was_running", None)
+
+
+def used_quotes(exclude=""):
+    return {p["quote"] for p in projects.list_projects(PROJECTS) if p["quote"] and p["name"] != exclude}
+
+
+def set_headline(h):
+    st.session_state[f"_s_{name}_quote"] = h
+    st.session_state[f"_sv_{name}"] = st.session_state.get(f"_sv_{name}", 0) + 1
+    projects.set_meta(pdir, quote=h)
+
+
+def make_headline(analysis, mood, topic, use_ai=True):
+    """A headline that fits the image: AI if a key is set, otherwise the built-in pools. Never one already used."""
+    used = used_quotes(name) | {projects.meta(pdir).get("quote", "")}       # also not the one this video has now
+    scenes = [s for s in analysis.get("scenes", []) if s in topic] or analysis.get("scenes", []) or list(topic)[:2]
+    if use_ai and ai_token and not ai_mock:
+        try:
+            opts, cost = ai.AIClient(ai_token, ai_model).suggest_headlines(analysis.get("description", ""), mood, scenes, used)
+            if opts:
+                st.session_state["_ai_spent"] = st.session_state.get("_ai_spent", 0.0) + cost
+                return opts[0]
+        except ai.AIError:
+            pass
+    return headlines.suggest(mood, scenes, used, 1)[0]
+
+
+def assign_image(path, analysis, mood, topic):
+    """Use a library image for this video: 16:9 copy in the project, a matching headline, cover for the thumbnail step."""
+    dest = library.prepare_for_project(Path(path), pdir)
+    set_headline(make_headline(analysis, mood, topic))
+    st.session_state["cover"] = (dest.name, dest.read_bytes())
+    st.session_state.pop(f"_sugg_{name}", None)
+
+
+def library_panel():
+    def body():
+        js = library.library_job_status()
+        was = st.session_state.get("_lib_was_running", False)
+        if js["running"]:
+            st.session_state["_lib_was_running"] = True
+            st.progress(js["progress"], text=f"{js['message']}")
+            return
+        if was:
+            st.session_state["_lib_was_running"] = False
+            st.rerun()
+        if js["state"] == "done" and js["total"]:
+            st.success(f"looked at {js['total']} images" + (f" · {js['spent']:.3f} credits" if js.get("spent") else ""))
+        elif js["state"] == "failed":
+            st.error(f"stopped: {js['error']}")
+        elif js["state"] == "interrupted":
+            st.warning("Looking at the images stopped unexpectedly. Press the button again: finished images are kept.")
+    st.fragment(run_every=3 if library.library_job_status()["running"] else None)(body)()
 
 
 def render_panel(pdir_):
@@ -321,6 +376,68 @@ if step == "playlist":
                     st.success("saved: the titles are kept in the file names")
                 st.caption("Track titles here feed the tracklist; edit them freely. Order = playback order.")
 
+if step == "library":
+    lib_dir = settings.library_dir()
+    lib_files = library.scan(lib_dir)
+    db = library.load_db()
+    with st.container(key="card_libsettings"):
+        folder_in = st.text_input("images folder", str(lib_dir or ""), placeholder=r"C:\Users\you\Documents\my-images",
+                                  help="The folder with your images. Subfolders are included. The app only reads it: it never changes or moves your files.")
+        l1, l2, l3 = st.columns([1, 1.3, 2.5])
+        if l1.button("use this folder", disabled=not folder_in.strip()):
+            settings.save_library_dir(folder_in)
+            st.rerun()
+        pending = [p for p in lib_files if library.needs_analysis(db, p)]
+        job = library.library_job_status()
+        use_ai_look = l3.checkbox("let the AI look at the pictures", value=bool(ai_token), disabled=not ai_token,
+                                  help="Much better matching than colours alone. About 0.01 credits per image; the total is shown when it finishes.")
+        if l2.button(f"look at {len(pending)} new images" if pending else "all images looked at", type="primary",
+                     disabled=not pending or job["running"]):
+            try:
+                library.start_library_job(str(lib_dir), bool(use_ai_look and ai_token), ai_token, ai_model)
+                st.rerun()
+            except RuntimeError as e:
+                st.error(str(e))
+        if not ai_token:
+            st.caption("No AI helper token yet: the app will guess from colours only. Add a token under keys and settings for real matching.")
+        library_panel()
+    if not lib_dir:
+        st.info("Choose the folder with your images above.")
+    elif not lib_files:
+        st.warning(f"No images found in {lib_dir}.")
+    else:
+        used_map = library.used_images(PROJECTS)
+        looked = [p for p in lib_files if not library.needs_analysis(db, p)]
+        f1, f2 = st.columns([1, 3])
+        flt = f1.selectbox("show", ["all", "not used yet", "calm", "groovy", "vertical (need 16:9)", "flagged"])
+        f2.caption(f"{len(lib_files)} images · {len(looked)} looked at · {len(used_map)} used in videos")
+        shown = []
+        for p in lib_files:
+            an = (db.get(str(p)) or {}).get("analysis") or {}
+            if flt == "not used yet" and str(p) in used_map: continue
+            if flt in ("calm", "groovy") and an.get("mood") != flt: continue
+            if flt.startswith("vertical") and an.get("orientation") != "vertical": continue
+            if flt == "flagged" and not (an.get("risks") or an.get("has_text")): continue
+            shown.append((p, an))
+        cols = st.columns(4)
+        for i, (p, an) in enumerate(shown):
+            with cols[i % 4], st.container(key=f"card_proj_img{i}"):
+                st.image(str(library.thumb(p)), width="stretch")
+                if an:
+                    chips = [an.get("mood", ""), an.get("time", "")] + an.get("scenes", [])[:1]
+                    st.markdown('<span class="sg-proj-meta">' + " · ".join(c for c in chips if c) + "</span>", unsafe_allow_html=True)
+                    if an.get("description"):
+                        st.caption(an["description"])
+                    if an.get("orientation") == "vertical":
+                        st.markdown('<span class="sg-pill" style="background:#FFF0D9">vertical</span>', unsafe_allow_html=True)
+                    if an.get("risks") or an.get("has_text"):
+                        st.markdown('<span class="sg-pill" style="background:#FFE4EE">check: ' + ", ".join(an.get("risks", []) or ["text in image"]) + "</span>",
+                                    unsafe_allow_html=True)
+                else:
+                    st.caption("not looked at yet")
+                if str(p) in used_map:
+                    st.markdown(f'<span class="sg-pill" style="background:#E7E5FF">used in {used_map[str(p)]}</span>', unsafe_allow_html=True)
+
 if step == "fix images":
     with st.container(key="card_fix_images"):
             st.caption("Drop in your photos. The free option fills the sides with a blurred copy; the AI option "
@@ -393,6 +510,42 @@ if step == "fix images":
                                 st.success(f"saved {out_path.name}: now pick it in the thumbnail step")
 
 if step == "thumbnail":
+    pm_ = projects.meta(pdir)
+    topic_ = pm_.get("topic") or brand.SCENES[:6]
+    mood_ = pm_.get("mood") or "calm"
+    req = st.session_state.pop("_headline_req", None)           # set by the buttons next to the quote
+    if req:
+        lib_an = (library.load_db().get(pm_.get("library_image", ""), {}) or {}).get("analysis")
+        if req == "ai" and not lib_an and st.session_state.get("cover"):
+            lib_an = library.heuristic_analysis(Image.open(io.BytesIO(st.session_state["cover"][1])))
+        an_ = lib_an or {"description": "", "scenes": list(topic_)[:2]}
+        set_headline(make_headline(an_, mood_, topic_, use_ai=(req == "ai")) if req == "ai" else
+                     headlines.suggest(mood_, [s for s in an_.get("scenes", []) if s in topic_] or list(topic_), used_quotes(name) | {pm_.get("quote", "")}, 1)[0])
+    with st.container(key="card_match"):
+        have = {k: v for k, v in library.load_db().items() if v.get("analysis") and Path(k).exists()}
+        if not have:
+            st.markdown("**pick an image from your library**")
+            st.caption("Nothing looked at yet. Choose your image folder in the **library** step, and this card will suggest images that fit this video.")
+        else:
+            used_ = {k: v for k, v in library.used_images(PROJECTS).items() if v != name}
+            m1, m2, m3 = st.columns([3, 1, 1.3])
+            m1.markdown(f"**pick an image from your library** · {len(have)} images · fits: {', '.join(topic_[:3])} · {mood_}")
+            if m2.button("suggest 3"):
+                st.session_state[f"_sugg_{name}"] = library.suggest(have, topic_, mood_, used_, seed=f"{name}{time.time()}", n=3)
+            if m3.button("use the best match", type="primary"):
+                best = library.suggest(have, topic_, mood_, used_, seed=f"{name}{time.time()}", n=1)
+                if best:
+                    assign_image(best[0]["path"], best[0]["analysis"], mood_, topic_)
+            sugg = st.session_state.get(f"_sugg_{name}") or []
+            if sugg:
+                for col, r in zip(st.columns(3), sugg):
+                    with col:
+                        st.image(str(library.thumb(Path(r["path"]))), width="stretch")
+                        st.caption(r["analysis"].get("description", "") or Path(r["path"]).name)
+                        st.markdown('<span class="sg-proj-meta">' + " · ".join(r["why"]) + "</span>", unsafe_allow_html=True)
+                        if st.button("use this one", key=f"use_lib_{name}_{Path(r['path']).stem}"):
+                            assign_image(r["path"], r["analysis"], mood_, topic_)
+                            st.rerun()
     with st.container(key="card_source"):
         c1, c2 = st.columns(2)
         up = c1.file_uploader("image (16:9, ≥1920px, no text in the image)", type=["png", "jpg", "jpeg", "webp"])
@@ -419,6 +572,11 @@ if step == "thumbnail":
             with c1:
                 quote = sticky(st.text_input, "quote", "quote", "you've got this.")
                 for w in T.check_quote(quote): st.caption(f":orange[{w}]")
+                hb1, hb2 = st.columns(2)
+                hb1.button("new headline", on_click=lambda: st.session_state.update(_headline_req="random"),
+                           help="A fresh headline that fits the mood and has not been used in another video.")
+                hb2.button("match to image", on_click=lambda: st.session_state.update(_headline_req="ai"),
+                           disabled=not (ai_token and not ai_mock), help="The AI writes a headline for this picture.")
                 subline = sticky(st.text_input, "subline (optional)", "subline", "")
             with c2:
                 cyber = sticky(st.toggle, "night city style", "cyber", False)
@@ -601,12 +759,16 @@ yt_done = bool(projects.meta(pdir).get("title")) and (pdir / "upload.txt").exist
 video_done = (pdir / "video.mp4").exists()
 render_now = projects.render_status(pdir)
 proj_count = len(projects.list_projects(PROJECTS))
+_lf = library.scan(settings.library_dir())
+_ldb = library.load_db()
+lib_looked = sum(1 for p in _lf if not library.needs_analysis(_ldb, p))
 job_now = projects.job_status(pdir)
 RAIL = {
     "projects": (False, f"{proj_count} video{'s' if proj_count != 1 else ''}" if proj_count else "start your first video"),
     "music": (n > 0 and not job_now["running"], f"generating {job_now['done']}/{job_now['total']}" if job_now["running"]
               else (f"{n} tracks · {mins} min" if n else "no tracks yet")),
     "playlist": (n > 0, "titles ready" if n else "after the music"),
+    "library": (bool(_lf) and lib_looked == len(_lf), f"{lib_looked} of {len(_lf)} looked at" if _lf else "choose your folder"),
     "fix images": (fixed_n > 0, f"{fixed_n} made 16:9" if fixed_n else "optional"),
     "thumbnail": (cover_done, "saved" if cover_done else ("in progress" if step == "thumbnail" else "not made yet")),
     "video": (video_done and yt_done, "ready to upload" if (video_done and yt_done) else

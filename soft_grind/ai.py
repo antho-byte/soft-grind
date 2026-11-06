@@ -31,8 +31,10 @@ class AIClient:
     def __init__(self, token: str = "", model: str = DEFAULT_MODEL, base_url: str = BASE_URL, mock: bool = False):
         self.token, self.model, self.base_url, self.mock = token.strip(), (model or DEFAULT_MODEL).strip(), base_url.rstrip("/"), mock
 
-    def chat(self, system: str, user: str, max_tokens: int = 400, temperature: float = 0.8) -> tuple[str, float]:
-        """Returns (text, credits_used). credits_used is 0 when the API does not report it."""
+    def chat(self, system: str, user: str, max_tokens: int = 400, temperature: float = 0.8,
+             images: list[str] | None = None) -> tuple[str, float]:
+        """Returns (text, credits_used). credits_used is 0 when the API does not report it.
+        `images` are data: URIs, sent as image_url parts so a vision-capable model can look at them."""
         if self.mock:
             return user.splitlines()[0].replace("Current prompt: ", "") + ", warm tape saturation (mock)", 0.0
         if not self.token:
@@ -41,7 +43,9 @@ class AIClient:
             f"{self.base_url}/v1/chat/completions", timeout=90,
             headers={"accept": "application/json", "authorization": f"Bearer {self.token}", "content-type": "application/json"},
             json={"model": self.model, "max_tokens": max_tokens, "temperature": temperature,
-                  "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
+                  "messages": [{"role": "system", "content": system},
+                               {"role": "user", "content": user if not images else
+                                [{"type": "text", "text": user}] + [{"type": "image_url", "image_url": {"url": u}} for u in images]}]},
         )
         if r.status_code >= 400:
             try:
@@ -59,12 +63,37 @@ class AIClient:
         cost = ((data.get("usage") or {}).get("cost") or {}).get("amount") or 0.0
         return text, float(cost)
 
+    def suggest_headlines(self, description: str, mood: str, scenes: list[str], used=()) -> tuple[list[str], float]:
+        user = (f"Image: {description}\nMood: {mood}\nScenes: {', '.join(scenes) or 'any'}\n"
+                f"Do not use these (already used): {'; '.join(list(used)[-40:]) or 'none'}")
+        text, cost = self.chat(HEADLINE_SYSTEM, user, max_tokens=200, temperature=1.0)
+        return parse_headlines(text, used), cost
+
     def improve_music_prompt(self, prompt: str, scenes: list[str] | None = None) -> tuple[str, float]:
         user = f"Current prompt: {prompt.strip()}"
         if scenes:
             user += f"\nScenes this playlist is about: {', '.join(scenes)}"
         text, cost = self.chat(IMPROVE_SYSTEM, user, max_tokens=300)
         return clean_prompt(text), cost
+
+
+HEADLINE_SYSTEM = (
+    "You write short headlines that are printed on YouTube thumbnails for soft grind, a calm instrumental city pop and lofi "
+    "channel for people who work and study. Rules: lowercase, 2 to 4 words, ends with a full stop or a question mark, warm and "
+    "encouraging, never hustle-bro (no 'grind', 'hustle', 'crush it', 'rise'), no emoji, no quotes. "
+    "The headline must feel like it belongs to the image. Reply with exactly 6 different options, one per line, no numbering."
+)
+
+
+def parse_headlines(text: str, used=(), limit: int = 6) -> list[str]:
+    """Keep only lines that follow the brand rules and are not used yet."""
+    from .thumbnail import check_quote
+    out, seen = [], {u.strip().lower() for u in used}
+    for line in text.splitlines():
+        h = re.sub(r"^[\s\-*\d.)]+", "", line).strip().strip("\"'`“”")
+        if h and not check_quote(h) and h.lower() not in seen and len(h) <= 40:
+            out.append(h); seen.add(h.lower())
+    return out[:limit]
 
 
 def clean_prompt(text: str, limit: int = 400) -> str:
