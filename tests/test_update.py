@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parent.parent
 def make_zip(version):
     b = io.BytesIO()
     with zipfile.ZipFile(b, "w") as z:
-        z.writestr("soft-grind-main/app.py", f"# app {version}\n")
+        z.writestr("soft-grind-main/app.py", STATE.get("app") or f"# app {version}\n")
         z.writestr("soft-grind-main/soft_grind/new_module.py", f"V={version}\n")
         z.writestr("soft-grind-main/requirements.txt", "streamlit\n")
         z.writestr("soft-grind-main/update.py", (ROOT / "update.py").read_text())   # the updater ships itself
@@ -25,7 +25,8 @@ class H(BaseHTTPRequestHandler):
 
 def run(app, port):
     env = {**os.environ, "SOFTGRIND_UPDATE_API": f"http://127.0.0.1:{port}", "SOFTGRIND_UPDATE_DL": f"http://127.0.0.1:{port}",
-           "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"}
+           "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1", "SOFTGRIND_SKIP_PIP": "1",
+           "SOFTGRIND_HOME": os.environ.get("SOFTGRIND_HOME_FOR_UPDATE", tempfile.mkdtemp())}
     return subprocess.run([sys.executable, str(app / "update.py")], env=env, capture_output=True, text=True).stdout
 
 def test_update_flow():
@@ -42,3 +43,19 @@ def test_update_flow():
     assert "updated to bbbbbbb" in run(app, srv.server_port) and (app / ".streamlit/config.toml").exists()
     STATE["fail"] = True; out = run(app, srv.server_port)             # GitHub down -> keep current version
     assert "skipped" in out and (app / "app.py").read_text() == "# app 2\n"
+
+
+def test_a_broken_new_version_is_rolled_back_and_not_tried_again():
+    srv = HTTPServer(("127.0.0.1", 0), H); threading.Thread(target=srv.serve_forever, daemon=True).start()
+    STATE.update(sha="c" * 40, v=3, fail=False, app=None)
+    app = Path(tempfile.mkdtemp()) / "soft-grind"; app.mkdir(); shutil.copy(ROOT / "update.py", app)
+    out = run(app, srv.server_port); assert "updated to ccccccc" in out, out                      # a good version installs
+    assert (app / "app.py").read_text() == "# app 3\n"
+    STATE.update(sha="d" * 40, v=4, app="raise RuntimeError('boom')\n")                         # a broken version arrives
+    out = run(app, srv.server_port)
+    assert "failed its self-test" in out and "boom" in out and "went back" in out, out
+    assert (app / "app.py").read_text() == "# app 3\n" and (app / ".version").read_text() == "c" * 40       # the working one is back
+    assert (app / ".bad_version").read_text() == "d" * 40
+    out = run(app, srv.server_port); assert "failed its self-test earlier" in out                # not retried at every start
+    STATE.update(sha="e" * 40, v=5, app=None)                                                    # the next version is fine again
+    out = run(app, srv.server_port); assert "updated to eeeeeee" in out and (app / "app.py").read_text() == "# app 5\n"

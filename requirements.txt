@@ -1,6 +1,6 @@
-streamlit>=1.50
-pillow
-numpy
-requests
-mutagen
-imageio-ffmpeg
+streamlit==1.66.1
+pillow==13.0.0
+numpy==2.5.4
+requests==2.34.2
+mutagen==1.48.1
+imageio-ffmpeg==0.8.1

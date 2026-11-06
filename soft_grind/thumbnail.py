@@ -52,7 +52,6 @@ def draw_logo(img: Image.Image, mode: str = "auto") -> Image.Image:
     sc = img.height / 1080
     font = _abril(round(72 * sc))
     word, dot = "soft grind", "."
-    wb, db = font.getbbox(word), font.getbbox(dot)
     x0 = round(64 * sc)
     w = font.getlength(word) + font.getlength(dot)
     asc, desc = font.getmetrics()

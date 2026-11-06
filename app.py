@@ -2,7 +2,6 @@
 import io
 import json
 import os
-import random
 import time
 import zipfile
 from pathlib import Path
@@ -10,10 +9,23 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import ai, brand, fixes, headlines, imagegen, library, metadata, names, playlist, projects, settings, texts, theme, thumbnail as T, video
+from soft_grind import ai, brand, fixes, headlines, imagegen, library, metadata, names, playlist, projects, security, settings, texts, theme, thumbnail as T, video
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
+if security.password_hash() and not st.session_state.get("_auth"):         # optional password gate: nothing else is shown before it
+    st.markdown(theme.logo_html(), unsafe_allow_html=True)
+    st.markdown('<div class="sg-sub">enter the password to continue.</div>', unsafe_allow_html=True)
+    with st.form("login"):
+        pw_in = st.text_input("password", type="password")
+        go_in = st.form_submit_button("open", type="primary")
+    if go_in:
+        ok_, msg_ = security.check_login(pw_in)
+        if ok_:
+            st.session_state["_auth"] = True
+            st.rerun()
+        st.error(msg_)
+    st.stop()
 PROJECTS = settings.projects_dir()
 SAVED = settings.load_keys()
 
@@ -214,6 +226,33 @@ with st.sidebar:
                     st.success("moved: " + ", ".join(moved))
                 if skipped:
                     st.warning("left in place (already has files in the new folder): " + ", ".join(skipped))
+        st.caption("security")
+        pw_new = st.text_input("app password", type="password", placeholder="set or change the password (8+ characters)",
+                               help="Asked every time the app opens. Stored as a scrambled hash, not as text.")
+        sp1, sp2 = st.columns(2)
+        if sp1.button("save password", disabled=not pw_new):
+            try:
+                security.set_password(pw_new)
+                st.session_state["_auth"] = True
+                st.success("password saved")
+            except ValueError as e:
+                st.error(str(e))
+        if sp2.button("remove password", disabled=not security.password_hash()):
+            security.remove_password()
+            st.rerun()
+        remote_on = st.toggle("allow other devices (phone, other computer)", value=security.remote_wanted(),
+                              disabled=not security.password_hash(),
+                              help="By default only this computer can open the app. Turn this on only on a network you trust. Restart the app after changing it.")
+        if remote_on != security.remote_wanted():
+            try:
+                security.set_remote(remote_on)
+                st.rerun()
+            except ValueError as e:
+                st.error(str(e))
+        if security.remote_wanted():
+            st.caption(f"After a restart, open `{security.lan_url()}` on a device on the same network, and enter the password.")
+        else:
+            st.caption("Right now only this computer can open the app.")
         st.caption(f"your keys live in `{settings.DATA_DIR}`, outside the app folder")
 
 st.session_state.setdefault("tracks", [])
@@ -376,7 +415,7 @@ if step == "music":
                     st.session_state["_style_keep"] = better
                     st.session_state["style_v"] += 1
                     st.session_state["_ai_spent"] = st.session_state.get("_ai_spent", 0.0) + cost
-                    st.session_state["_ai_note"] = f"improved by AI" + (f" · {cost:.4f} credits" if cost else "")
+                    st.session_state["_ai_note"] = "improved by AI" + (f" · {cost:.4f} credits" if cost else "")
                 except ai.AIError as e:
                     st.session_state["_ai_note"] = f"AI helper error: {e}"
             if st.session_state.pop("_undo_req", False) and st.session_state.get("_style_before"):
