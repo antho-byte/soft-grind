@@ -46,6 +46,8 @@ def test_folders_disk_ffmpeg_and_background_jobs_on_this_computer():
     r = health.check_background_jobs(); assert r["status"] == "ok", r                                  # real detached process, real answer
 
 def test_diagnostics_never_contain_secrets():
+    import importlib
+    os.environ["SOFTGRIND_HOME"] = tempfile.mkdtemp(); importlib.reload(settings)                      # its own clean data folder
     fake = "feedface" * 4                                                                              # a made-up 32-character key
     settings.save_keys(fake, "cafebabe" * 4, "deadbeef" * 4, "claude-haiku")
     root = settings.projects_dir(); pd = root / "mix-001"; pd.mkdir(parents=True)
