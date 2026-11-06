@@ -87,7 +87,7 @@ def run(job_path: str) -> None:
         check_cancel(); at(2, 0.0, "writing the headline")
         if not projects.meta(pdir).get("quote"):
             analysis = (library.load_db().get(li) or {}).get("analysis") or {"description": "", "scenes": list(topic)[:2]}
-            used_q = {projects.meta(d).get("quote", "") for d in root.iterdir() if d.is_dir() and d != pdir}
+            used_q = {projects.meta(d).get("quote", "") for d in projects.project_dirs(root) if d != pdir}
             h, _ = headlines.pick(analysis, mood, list(topic), used_q, ai_client)
             projects.set_meta(pdir, quote=h)
 
@@ -112,13 +112,13 @@ def run(job_path: str) -> None:
         m = projects.meta(pdir)
         if not m.get("title"):
             tracks = playlist.tracks_from_folder(pdir / "tracks")
-            idx = sum(1 for d in root.iterdir() if d.is_dir())
+            idx = len(projects.project_dirs(root))
             analysis = (library.load_db().get(li) or {}).get("analysis") or {}
             fields, parts, _, by_ai = texts.compose(
                 quote=m["quote"], tracks=tracks, mood=mood, topic=list(topic), image_description=analysis.get("description", ""),
                 playlist_name=m.get("playlist_name", ""), scenario=m.get("scenario", ""), crossfade=spec.get("crossfade", 4.0), idx=idx,
                 previous=texts.previous_parts(root, exclude=name), ai_client=ai_client)
-            taken = {projects.meta(d).get("schedule", "") for d in root.iterdir() if d.is_dir() and d != pdir}
+            taken = {projects.meta(d).get("schedule", "") for d in projects.project_dirs(root) if d != pdir}
             schedule = projects.next_free_slot(taken).strftime("%Y-%m-%d %H:%M")
             projects.set_meta(pdir, **fields, schedule=schedule, text_parts=parts, text_by_ai=by_ai)
             from . import metadata

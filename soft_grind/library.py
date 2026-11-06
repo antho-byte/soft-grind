@@ -168,7 +168,7 @@ def library_job_status() -> dict:
 def used_images(root: Path) -> dict[str, str]:
     """image path -> name of the video that uses it."""
     out = {}
-    for d in (sorted(d for d in Path(root).iterdir() if d.is_dir()) if Path(root).is_dir() else []):
+    for d in projects.project_dirs(root):
         img = projects.meta(d).get("library_image")
         if img:
             out[img] = d.name

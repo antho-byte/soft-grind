@@ -289,12 +289,55 @@ if step == "projects":
                             st.rerun()
                         except RuntimeError as e:
                             st.error(str(e))
-                if st.button("open", key=f"open_{info['name']}"):
+                o1, o2 = st.columns(2)
+                if o1.button("open", key=f"open_{info['name']}", width="stretch"):
                     open_project(info["name"], info["stage"])
                     st.rerun()                                           # full rerun, so the page switches
+                if o2.button("delete", key=f"del_{info['name']}", width="stretch"):
+                    st.session_state["_confirm_delete"] = info["name"]
+                if st.session_state.get("_confirm_delete") == info["name"]:
+                    st.warning(f"Move {info['name']} to the trash? Its songs, thumbnail and video go with it. You can restore it from the trash below.")
+                    k1, k2 = st.columns(2)
+                    if k1.button("yes, delete", key=f"delyes_{info['name']}", type="primary", width="stretch"):
+                        try:
+                            projects.trash_project(info["path"])
+                            st.session_state.pop("_confirm_delete", None)
+                            if st.session_state.get("project") == info["name"]:
+                                st.session_state.update(project=projects.next_project_name(PROJECTS), tracks=[], fix_results={})
+                            st.rerun()
+                        except RuntimeError as e:
+                            st.error(str(e))
+                    if k2.button("keep it", key=f"delno_{info['name']}", width="stretch"):
+                        st.session_state.pop("_confirm_delete", None)
+                        st.rerun()
 
     running_any = any(p["job"]["running"] or p["render"]["running"] or p["auto"]["running"] for p in projects.list_projects(PROJECTS))
     st.fragment(run_every=5 if running_any else None)(grid)()
+
+    trashed = projects.list_trash(PROJECTS)
+    if trashed:
+        with st.expander(f"trash ({len(trashed)})"):
+            st.caption("Deleted videos stay here until you empty the trash, so a mistake can be undone. They still take up disk space.")
+            for tr in trashed:
+                t1, t2, t3 = st.columns([3, 1, 1.3])
+                t1.markdown(f"**{tr['name']}** {('· ' + tr['quote']) if tr['quote'] else ''}  \n"
+                            f"<span class='sg-proj-meta'>{tr['tracks']} tracks · {tr['size_mb']:.0f} MB · deleted {tr['deleted']}</span>",
+                            unsafe_allow_html=True)
+                if t2.button("restore", key=f"restore_{tr['folder'].name}"):
+                    st.toast(f"restored as {projects.restore_project(tr['folder'], PROJECTS)}")
+                    st.rerun()
+                if t3.button("delete forever", key=f"forever_{tr['folder'].name}"):
+                    st.session_state["_confirm_forever"] = tr["folder"].name
+                if st.session_state.get("_confirm_forever") == tr["folder"].name:
+                    st.error(f"Delete {tr['name']} for good? This cannot be undone.")
+                    z1, z2 = st.columns(2)
+                    if z1.button("yes, delete for good", key=f"foreveryes_{tr['folder'].name}", type="primary"):
+                        projects.delete_forever(tr["folder"])
+                        st.session_state.pop("_confirm_forever", None)
+                        st.rerun()
+                    if z2.button("keep it", key=f"foreverno_{tr['folder'].name}"):
+                        st.session_state.pop("_confirm_forever", None)
+                        st.rerun()
 
 if step == "music":
     with st.container(key="card_music"):
@@ -717,7 +760,7 @@ if step == "video":
                 seed_new, parts_, cost_, by_ai_ = texts.compose(
                     quote=quote_m, tracks=tracks, mood=saved.get("mood") or "calm", topic=saved.get("topic") or brand.SCENES[:4],
                     image_description=an_.get("description", ""), playlist_name=pl, scenario=sc, crossfade=crossfade,
-                    idx=sum(1 for d in PROJECTS.iterdir() if d.is_dir()), previous=texts.previous_parts(PROJECTS, exclude=name),
+                    idx=len(projects.project_dirs(PROJECTS)), previous=texts.previous_parts(PROJECTS, exclude=name),
                     ai_client=ai.AIClient(ai_token, ai_model))
                 projects.set_meta(pdir, text_parts=parts_, text_by_ai=by_ai_)
                 st.toast(("written by the AI" + (f" · {cost_:.3f} credits" if cost_ else "")) if by_ai_ else

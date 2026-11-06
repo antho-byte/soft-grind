@@ -73,7 +73,7 @@ def move_projects(src: Path, dst: Path) -> tuple[list[str], list[str]]:
     if dst.resolve().is_relative_to(src.resolve()):          # moving a folder into itself
         return moved, ["(the new folder is inside the old one)"]
     dst.mkdir(parents=True, exist_ok=True)
-    for proj in sorted(p for p in src.iterdir() if p.is_dir()):
+    for proj in sorted(p for p in src.iterdir() if p.is_dir() and not p.name.startswith(".")):
         target = dst / proj.name
         if target.exists():
             if _has_files(target):

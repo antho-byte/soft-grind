@@ -102,3 +102,37 @@ def test_write_json_survives_windows_style_access_denied(monkeypatch):
     monkeypatch.setattr(_t, "sleep", lambda s: None)
     projects.write_json(f, {"a": 2})                                                  # falls back to writing in place
     assert projects.read_json(f) == {"a": 2} and not list(d.glob("*.tmp"))
+
+
+def test_trash_restore_forever_and_hidden_everywhere():
+    import tempfile, time as _t
+    from soft_grind import library, texts
+    root = Path(tempfile.mkdtemp())
+    for n in ("mix-001", "mix-002"):
+        (root / n / "tracks").mkdir(parents=True); (root / n / "tracks" / "01 - a.wav").write_bytes(b"0")
+        projects.set_meta(root / n, quote=f"q {n}", created=_t.time(), text_parts={"suffix": n, "subline": "", "scene_text": "", "pinned": "", "question": ""},
+                          library_image=f"/img/{n}.jpg")
+    assert library.used_images(root) == {"/img/mix-001.jpg": "mix-001", "/img/mix-002.jpg": "mix-002"}
+    dest = projects.trash_project(root / "mix-002")
+    assert dest.parent.name == ".trash" and not (root / "mix-002").exists() and (dest / "tracks" / "01 - a.wav").exists()
+    assert [p["name"] for p in projects.list_projects(root)] == ["mix-001"]                       # gone from the overview
+    assert library.used_images(root) == {"/img/mix-001.jpg": "mix-001"}                           # its image is free again
+    assert texts.previous_parts(root)["suffix"] == ["mix-001"] and projects.project_dirs(root) == [root / "mix-001"]
+    assert projects.next_project_name(root) == "mix-002"
+    tr = projects.list_trash(root); assert len(tr) == 1 and tr[0]["name"] == "mix-002" and tr[0]["tracks"] == 1 and tr[0]["quote"] == "q mix-002"
+    assert projects.restore_project(tr[0]["folder"], root) == "mix-002" and (root / "mix-002" / "tracks" / "01 - a.wav").exists() and not projects.list_trash(root)
+    projects.trash_project(root / "mix-002")                                                      # name taken again -> restored under a new name
+    (root / "mix-002" / "tracks").mkdir(parents=True); (root / "mix-002" / "tracks" / "x.wav").write_bytes(b"1")
+    assert projects.restore_project(projects.list_trash(root)[0]["folder"], root) == "mix-003"
+    projects.trash_project(root / "mix-003"); projects.delete_forever(projects.list_trash(root)[0]["folder"])
+    assert projects.list_trash(root) == [] and (root / "mix-002" / "tracks" / "x.wav").exists()   # only the chosen one is gone
+
+def test_cannot_trash_a_project_that_is_being_made():
+    import tempfile, time as _t
+    root = Path(tempfile.mkdtemp()); pd = root / "mix-001"; pd.mkdir()
+    projects.write_json(pd / projects.AUTO, {"state": "running", "updated": _t.time(), "spec": {}, "step": 1})
+    try: projects.trash_project(pd); assert False
+    except RuntimeError as e: assert "still being made" in str(e)
+    assert pd.exists()
+    projects.write_json(pd / projects.AUTO, {"state": "done", "updated": _t.time(), "spec": {}, "step": 6})
+    projects.trash_project(pd); assert not pd.exists()

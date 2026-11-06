@@ -25,7 +25,7 @@ def previous_parts(root, exclude: str = "", last: int = 10) -> dict[str, list[st
     """What earlier videos used (saved as text_parts in project.json), oldest first."""
     from . import projects
     rows = []
-    for d in (sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []):
+    for d in projects.project_dirs(root):
         if d.name == exclude:
             continue
         m = projects.meta(d)

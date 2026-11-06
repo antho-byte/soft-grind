@@ -15,6 +15,15 @@ META, JOB, CANCEL = "project.json", "job.json", "cancel"
 STALE_AFTER = 120  # seconds without a heartbeat -> the job counts as interrupted
 
 
+TRASH = ".trash"
+
+
+def project_dirs(root: Path) -> list[Path]:
+    """Project folders only: hidden ones (like the trash) never count as projects."""
+    root = Path(root)
+    return sorted(d for d in root.iterdir() if d.is_dir() and not d.name.startswith(".")) if root.is_dir() else []
+
+
 def read_json(path: Path) -> dict:
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -65,7 +74,7 @@ def create_project(root: Path) -> str:
     nm = next_project_name(root)
     pd = Path(root) / nm
     pd.mkdir(parents=True, exist_ok=True)
-    taken = [m for m in (meta(d).get("playlist_name") for d in Path(root).iterdir() if d.is_dir()) if m]
+    taken = [m for m in (meta(d).get("playlist_name") for d in project_dirs(root)) if m]
     set_meta(pd, created=time.time(), scenario=random.choice(brand.SCENARIOS),
              playlist_name=names.suggest([random.choice(brand.SCENES)], 1, taken, "calm")[0])
     return nm
@@ -134,7 +143,7 @@ def stage(info: dict) -> str:
 def list_projects(root: Path) -> list[dict]:
     root = Path(root)
     out = []
-    for p in sorted(d for d in root.iterdir() if d.is_dir()) if root.is_dir() else []:
+    for p in project_dirs(root):
         if not any(f.is_file() for f in p.rglob("*")):        # empty folders (the app creates one per typed name) are not videos
             continue
         n, secs = track_stats(p)
@@ -248,3 +257,53 @@ def next_free_slot(taken: set[str], now=None, hour: int = 15):
 def cancel_job(pdir: Path) -> None:
     Path(pdir).mkdir(parents=True, exist_ok=True)
     (Path(pdir) / CANCEL).write_text("1")
+
+
+# ---------- trash: delete is a move, so a mistake can be undone ----------
+def is_busy(pdir: Path) -> bool:
+    return job_status(pdir)["running"] or render_status(pdir)["running"] or auto_status(pdir)["running"]
+
+
+def trash_project(pdir: Path) -> Path:
+    """Move a project into <projects>/.trash. Refuses while something is still being made for it."""
+    import shutil
+    pdir = Path(pdir)
+    if is_busy(pdir):
+        raise RuntimeError(f"{pdir.name} is still being made. Cancel it first, then delete it.")
+    dest = pdir.parent / TRASH / f"{pdir.name}__{time.strftime('%Y%m%d-%H%M%S')}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.move(str(pdir), str(dest))
+    except PermissionError:
+        raise RuntimeError("Windows says the files are in use. Close any video player or File Explorer window showing this "
+                           "project, then try again.")
+    return dest
+
+
+def list_trash(root: Path) -> list[dict]:
+    t = Path(root) / TRASH
+    out = []
+    for d in (sorted(x for x in t.iterdir() if x.is_dir()) if t.is_dir() else []):
+        name, _, stamp = d.name.rpartition("__")
+        n, _ = track_stats(d)
+        out.append({"folder": d, "name": name or d.name, "deleted": stamp, "tracks": n, "quote": meta(d).get("quote", ""),
+                    "size_mb": sum(f.stat().st_size for f in d.rglob("*") if f.is_file()) / 1e6})
+    return sorted(out, key=lambda r: r["deleted"], reverse=True)
+
+
+def restore_project(folder: Path, root: Path) -> str:
+    """Put a trashed project back under its old name (or the next free name if that name is taken again)."""
+    import shutil
+    folder, root = Path(folder), Path(root)
+    name = folder.name.rpartition("__")[0] or folder.name
+    if (root / name).exists() and any(f.is_file() for f in (root / name).rglob("*")):
+        name = next_project_name(root)
+    elif (root / name).exists():
+        shutil.rmtree(root / name)                           # an empty leftover folder
+    shutil.move(str(folder), str(root / name))
+    return name
+
+
+def delete_forever(folder: Path) -> None:
+    import shutil
+    shutil.rmtree(folder)
