@@ -32,7 +32,7 @@ def test_windows_file_uri():
     from soft_grind.suno import uri_to_path
     # Windows turns file:///C:/Users/antho/a%20b.wav into C:\Users\antho\a b.wav (the old code kept a leading slash)
     assert nturl2path.url2pathname("/C:/Users/antho/a%20b.wav") == "C:\\Users\\antho\\a b.wav"
-    assert str(uri_to_path("file:///tmp/a%20b.wav")) == "/tmp/a b.wav"
+    assert uri_to_path("file:///tmp/a%20b.wav").name == "a b.wav"            # the folder separators depend on the system
 
 
 def test_names_unique_and_on_topic():
