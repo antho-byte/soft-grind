@@ -10,7 +10,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import ai, brand, headlines, imagegen, library, metadata, names, playlist, projects, settings, theme, thumbnail as T
+from soft_grind import ai, brand, headlines, imagegen, library, metadata, names, playlist, projects, settings, texts, theme, thumbnail as T
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
@@ -607,7 +607,7 @@ if step == "thumbnail":
         with st.container(key="card_settings"):
             c1, c2, c3, c4 = st.columns(4)
             with c1:
-                quote = sticky(st.text_input, "quote", "quote", "you've got this.")
+                quote = sticky(st.text_input, "quote", "quote", pm_.get("quote") or "you've got this.")
                 for w in T.check_quote(quote): st.caption(f":orange[{w}]")
                 hb1, hb2 = st.columns(2)
                 hb1.button("new headline", on_click=lambda: st.session_state.update(_headline_req="random"),
@@ -679,7 +679,7 @@ if step == "video":
                 st.warning("Add at least 3 tracks (music or playlist step): the tracklist needs real durations for chapters.")
             c1, c2 = st.columns(2)
             with c1:
-                quote_m = sticky(st.text_input, "quote", "quote", "you've got this.")
+                quote_m = sticky(st.text_input, "quote", "quote", saved.get("quote") or "you've got this.")
                 subline_m = sticky(st.text_input, "subline", "subline_yt", "one more hour, then rest.")
                 tstyle = st.radio("title format", ["quote", "playlist"], horizontal=True,
                                   format_func=lambda s: "[quote] | 80s japanese city pop to work & study to"
@@ -695,8 +695,13 @@ if step == "video":
                 mood = st.selectbox("mood hashtag", list(brand.MOODS))
                 question = st.selectbox("question to viewers", brand.DESCRIPTION_QUESTIONS)
                 pinned_choice = st.selectbox("pinned comment", brand.PINNED_COMMENTS)
-            st.button("write title, description and tags for me", on_click=lambda: st.session_state.update(_regen_req=name))
-            st.caption("This replaces the text in the form above. Edit it afterwards, then press save.")
+            bt1, bt2 = st.columns(2)
+            bt1.button("write unique text with AI", type="primary", disabled=not (ai_token and not ai_mock),
+                       on_click=lambda: st.session_state.update(_regen_req=name, _regen_mode="ai"),
+                       help="The AI writes a title phrase, subline, scene paragraph, pinned comment and question for THIS video, "
+                            "different from your earlier videos. The quote stays first in the title.")
+            bt2.button("fill from the settings above", on_click=lambda: st.session_state.update(_regen_req=name, _regen_mode="template"))
+            st.caption("Either button replaces the text in the form. Edit it afterwards, then press save.")
         if (pl, sc, quote_m) != (saved.get("playlist_name"), saved.get("scenario"), saved.get("quote")):
             projects.set_meta(pdir, playlist_name=pl, scenario=sc, quote=quote_m)
             saved = projects.meta(pdir)
@@ -706,8 +711,19 @@ if step == "video":
                "tags": ", ".join(metadata.make_tags()), "pinned": pinned_choice}
         vkey = f"_text_v_{name}"
         if st.session_state.pop("_regen_req", None) == name:       # "write it for me": new widgets, filled with fresh text
+            seed_new = gen
+            if st.session_state.pop("_regen_mode", "template") == "ai":
+                an_ = (library.load_db().get(saved.get("library_image", ""), {}) or {}).get("analysis") or {}
+                seed_new, parts_, cost_, by_ai_ = texts.compose(
+                    quote=quote_m, tracks=tracks, mood=saved.get("mood") or "calm", topic=saved.get("topic") or brand.SCENES[:4],
+                    image_description=an_.get("description", ""), playlist_name=pl, scenario=sc, crossfade=crossfade,
+                    idx=sum(1 for d in PROJECTS.iterdir() if d.is_dir()), previous=texts.previous_parts(PROJECTS, exclude=name),
+                    ai_client=ai.AIClient(ai_token, ai_model))
+                projects.set_meta(pdir, text_parts=parts_, text_by_ai=by_ai_)
+                st.toast(("written by the AI" + (f" · {cost_:.3f} credits" if cost_ else "")) if by_ai_ else
+                         "The AI text did not pass the checks, so the rotating templates were used instead.")
             st.session_state[vkey] = st.session_state.get(vkey, 0) + 1
-            st.session_state[f"_seed_{name}"] = gen
+            st.session_state[f"_seed_{name}"] = seed_new
         ver = st.session_state.get(vkey, 0)
         seed = st.session_state.get(f"_seed_{name}") or {}
         init = {k: seed.get(k) or saved.get(k) or gen[k] for k in gen}

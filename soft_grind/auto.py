@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from . import ai, brand, headlines, library, metadata, playlist, projects, settings, thumbnail as T, video, worker
+from . import ai, brand, headlines, library, playlist, projects, settings, texts, thumbnail as T, video, worker
 from .suno import SunoError
 
 
@@ -113,18 +113,17 @@ def run(job_path: str) -> None:
         if not m.get("title"):
             tracks = playlist.tracks_from_folder(pdir / "tracks")
             idx = sum(1 for d in root.iterdir() if d.is_dir())
-            quote = m["quote"]
-            title = metadata.make_title("quote", quote, m.get("playlist_name", ""), m.get("scenario", ""), "🌴")
-            desc = metadata.make_description(quote, "one more hour, then rest.", metadata.default_scene_text(list(topic)), tracks,
-                                             "working and studying", brand.ARTISTS[idx % len(brand.ARTISTS)],
-                                             brand.DESCRIPTION_QUESTIONS[idx % len(brand.DESCRIPTION_QUESTIONS)],
-                                             brand.MOODS["groovy" if mood == "groovy" else "calm"], spec.get("crossfade", 4.0))
-            tags = ", ".join(metadata.make_tags())
-            pinned = brand.PINNED_COMMENTS[idx % len(brand.PINNED_COMMENTS)]
+            analysis = (library.load_db().get(li) or {}).get("analysis") or {}
+            fields, parts, _, by_ai = texts.compose(
+                quote=m["quote"], tracks=tracks, mood=mood, topic=list(topic), image_description=analysis.get("description", ""),
+                playlist_name=m.get("playlist_name", ""), scenario=m.get("scenario", ""), crossfade=spec.get("crossfade", 4.0), idx=idx,
+                previous=texts.previous_parts(root, exclude=name), ai_client=ai_client)
             taken = {projects.meta(d).get("schedule", "") for d in root.iterdir() if d.is_dir() and d != pdir}
             schedule = projects.next_free_slot(taken).strftime("%Y-%m-%d %H:%M")
-            projects.set_meta(pdir, title=title, description=desc, tags=tags, pinned=pinned, schedule=schedule)
-            (pdir / "upload.txt").write_text(metadata.upload_txt(title, desc, [t.strip() for t in tags.split(",")], pinned, schedule),
+            projects.set_meta(pdir, **fields, schedule=schedule, text_parts=parts, text_by_ai=by_ai)
+            from . import metadata
+            (pdir / "upload.txt").write_text(metadata.upload_txt(fields["title"], fields["description"],
+                                                                 [t.strip() for t in fields["tags"].split(",")], fields["pinned"], schedule),
                                              encoding="utf-8")
         save(state="done", step=n_steps, progress=1.0, message="ready to check", finished=time.time())
     except Cancelled:

@@ -42,9 +42,13 @@ def tracklist_text(tracks: list[dict], crossfade: float = CROSSFADE) -> str:
     return "\n".join(f"{fmt_ts(s)} {t['title'].lower()}" for s, t in zip(ts, tracks))
 
 
-def make_title(style: str, quote: str, playlist: str = "", scenario: str = "", emoji: str = "🌴") -> str:
+DEFAULT_SUFFIX = "80s japanese city pop to work & study to"
+
+
+def make_title(style: str, quote: str, playlist: str = "", scenario: str = "", emoji: str = "🌴", suffix: str | None = None) -> str:
     if style == "quote":
-        return f"{quote} | 80s japanese city pop to work & study to"
+        s = DEFAULT_SUFFIX if suffix is None else suffix.strip()
+        return f"{quote} | {s}" if s else quote
     return f"{playlist} you're {scenario} {emoji} 80s city pop"
 
 

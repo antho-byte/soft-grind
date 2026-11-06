@@ -71,3 +71,13 @@ DESCRIPTION_QUESTIONS = ["what are you working on tonight?", "what's the one thi
 # Used to fill the "scenario" in the playlist-style title when a new video starts.
 SCENARIOS = ["studying at 2am", "working late", "on the night train", "at your desk", "finishing the deadline",
              "reading by the window", "building something", "on a rainy sunday"]
+
+# Title phrases after the quote ("" = quote only). The AI picks or invents one; this is the no-AI fallback pool.
+TITLE_SUFFIXES = ["80s japanese city pop to work & study to", "japanese city pop for deep focus", "instrumental city pop & lofi",
+                  "city pop to focus to", "lofi city pop for late nights", "chill japanese fusion for work", "80s city pop for studying", ""]
+SUBLINES = ["one more hour, then rest.", "soft music for the long stretch.", "keep it gentle tonight.", "a calm soundtrack for your desk.",
+            "let the city hum along.", "slow grooves, steady focus.", "for the quiet part of the day.", "headphones on, world off."]
+QUESTIONS = ["what are you working on tonight?", "what's the one thing you'll finish today?", "what are you building right now?",
+             "what's on your desk this evening?", "what are you studying for?", "what's keeping you up tonight?"]
+PINNED_EXTRA = ["what's on your desk tonight? share it below.", "tell us what you're building this evening.",
+                "what are you focusing on right now?", "what's the plan for the next hour?", "share what you're working on, we'd love to know."]

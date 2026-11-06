@@ -71,3 +71,30 @@ def test_cancel():
     root = settings.projects_dir(); nm = projects.create_project(root); pd = root / nm
     projects.start_auto(pd, dict(SPEC, n_req=30)); projects.cancel_job(pd)
     st = _wait(projects, pd, {"cancelled", "done", "failed"}); assert st["state"] == "cancelled"
+
+
+def test_whole_video_with_ai_written_text():
+    import json, threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    GOOD = {"title_suffix": "lofi city pop for late nights", "subline": "warm lights, patient hours.",
+            "scene_text": "city lights on wet streets and a laptop that glows softly. easy tempos for long, patient work that asks for nothing loud.",
+            "pinned_comment": "what are you building tonight?", "question": "what's keeping you up this evening?"}
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+        def do_POST(self):
+            self.rfile.read(int(self.headers["content-length"]))
+            out = {"choices": [{"message": {"role": "assistant", "content": json.dumps(GOOD)}}], "usage": {"cost": {"amount": 0.01}}}
+            self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(json.dumps(out).encode())
+    srv = HTTPServer(("127.0.0.1", 0), H); threading.Thread(target=srv.serve_forever, daemon=True).start()
+    os.environ["SOFTGRIND_AI_BASE_URL"] = f"http://127.0.0.1:{srv.server_port}"; os.environ["NO_PROXY"] = "127.0.0.1"; os.environ["no_proxy"] = "127.0.0.1"
+    try:
+        settings, library, projects = _env(); _library(settings, library)
+        root = settings.projects_dir(); nm = projects.create_project(root); pd = root / nm
+        projects.start_auto(pd, dict(SPEC, use_ai=True), ai_token="KEY")
+        st = _wait(projects, pd, {"done", "failed", "needs_attention"}); assert st["state"] == "done", st
+        m = projects.meta(pd)
+        assert m["text_by_ai"] is True and m["title"] == f"{m['quote']} | lofi city pop for late nights"
+        assert m["description"].startswith(f"{m['quote']} warm lights, patient hours.") and m["pinned"] == "what are you building tonight?"
+        assert m["text_parts"]["suffix"] == "lofi city pop for late nights" and "00:00" in m["description"]
+    finally:
+        os.environ.pop("SOFTGRIND_AI_BASE_URL", None)
