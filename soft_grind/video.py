@@ -82,11 +82,16 @@ def measure_loudness(inputs: list[Path], graph: str, total: float, on_progress=N
     return json.loads(blocks[-1])
 
 
-# ---------- film look: grain, vignette, flicker, dust, tint ----------
+# ---------- film look: light film like an old print: a few dust specks, thin vertical scratches, soft colour ----------
 GRAIN = {0: 0, 1: 7, 2: 14}                      # strength of the luma noise: off / low / medium
 TINTS = {"none": "", "warm": "colorbalance=rs=.04:gs=.01:bs=-.04:rm=.03:bm=-.03,eq=saturation=1.05",
          "faded": "curves=all='0/0.05 1/0.95',eq=contrast=0.94:saturation=0.88"}
-LOOK_DEFAULT = {"grain": 1, "vignette": True, "flicker": True, "dust": False, "tint": "none", "fps": 15}
+LOOK_DEFAULT = {"grain": 0, "vignette": False, "flicker": False, "dust": True, "scratches": True, "tint": "none", "fps": 15}
+PRESETS = {
+    "light film": {"grain": 0, "vignette": False, "flicker": False, "dust": True, "scratches": True, "tint": "none", "fps": 15},
+    "light film, faded": {"grain": 0, "vignette": False, "flicker": False, "dust": True, "scratches": True, "tint": "faded", "fps": 15},
+    "soft film (with grain)": {"grain": 1, "vignette": True, "flicker": True, "dust": True, "scratches": True, "tint": "warm", "fps": 15},
+}
 
 
 def normalize_look(look: dict | None) -> dict | None:
@@ -95,9 +100,18 @@ def normalize_look(look: dict | None) -> dict | None:
         return None
     out = {"grain": int(look.get("grain", 0)) if int(look.get("grain", 0)) in GRAIN else 0,
            "vignette": bool(look.get("vignette")), "flicker": bool(look.get("flicker")), "dust": bool(look.get("dust")),
+           "scratches": bool(look.get("scratches")),
            "tint": look.get("tint") if look.get("tint") in TINTS else "none",
            "fps": min(30, max(8, int(look.get("fps", 15))))}
-    return out if (out["grain"] or out["vignette"] or out["flicker"] or out["dust"] or out["tint"] != "none") else None
+    return out if (out["grain"] or out["vignette"] or out["flicker"] or out["dust"] or out["scratches"] or out["tint"] != "none") else None
+
+
+_BLACK0 = "lutyuv=y='clip((val-16)*255/219,0,255)'"        # an overlay's black must add nothing (video-range black is 16, not 0)
+
+
+def _hash(salt: str, group: int = 3) -> str:
+    """A repeatable pseudo-random number 0..1 that changes every `group` frames (a scratch lives for a few frames)."""
+    return f"mod(abs(sin(floor(N/{group})*{salt})*43758.5453),1)"
 
 
 def look_graph(look: dict) -> str:
@@ -112,10 +126,29 @@ def look_graph(look: dict) -> str:
         steps.append("eq=brightness='0.012*sin(2*PI*t*1.3)+0.008*sin(2*PI*t*7.7)':eval=frame")
     g = "[0:v]" + ",".join(steps) + "[base]"
     last = "base"
-    if look["dust"]:                                   # a few bright specks per frame, drawn small and scaled up so they look soft
-        g += (f";color=c=black:s=480x270:r={fps},format=gray,geq=lum='if(gt(random(1),0.9995),255,0)',"
-              f"scale=1920:1080:flags=bicubic,format=yuv420p[dust];[base][dust]blend=all_mode=screen:all_opacity=0.3:shortest=0[dusty]")
-        last = "dusty"
+    n = 0
+
+    def overlay(source: str, opacity: float) -> None:
+        nonlocal g, last, n
+        n += 1
+        g += f";{source}[ov{n}];[{last}][ov{n}]blend=c0_mode=screen:c0_opacity={opacity}:c1_expr=A:c2_expr=A:shortest=0[l{n}]"
+        last = f"l{n}"
+
+    if look["dust"]:
+        # small specks (drawn small, scaled up, so they are soft) and now and then a bigger, fainter blob; each lasts one frame
+        overlay(f"color=c=black:s=480x270:r={fps},format=gray,geq=lum='if(gt(random(1),0.9997),255,0)',"
+                f"scale=1920:1080:flags=bicubic,format=yuv420p,{_BLACK0}", 0.35)
+        overlay(f"color=c=black:s=192x108:r={fps},format=gray,geq=lum='if(gt(random(1),0.99993),255,0)',"
+                f"scale=1920:1080:flags=bicubic,gblur=sigma=3,format=yuv420p,{_BLACK0}", 0.5)
+    if look["scratches"]:
+        # thin vertical lines that appear for a few frames at a random place, now and then. One row of pixels, stretched to full height.
+        def line(salt_x: str, salt_p: str, prob: float) -> str:
+            x0 = f"1920*{_hash(salt_x)}"
+            return (f"color=c=black:s=1920x1:r={fps},format=gray,"
+                    f"geq=lum='255*lt({_hash(salt_p)},{prob})*lt(abs(X-{x0}),1.2)*(0.4+0.6*{_hash('5.13')})',"
+                    f"scale=1920:1080:flags=neighbor,format=yuv420p,{_BLACK0}")
+        overlay(line("12.9898", "78.233", 0.06), 0.5)
+        overlay(line("39.346", "11.135", 0.03), 0.35)
     tail = []
     if look["grain"]:
         tail.append(f"noise=c0s={GRAIN[look['grain']]}:c0f=t+u")      # luma only, changes every frame: looks like film, not TV static

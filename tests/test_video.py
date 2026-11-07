@@ -55,7 +55,7 @@ def test_preview_is_small_and_made_with_every_render():
 def test_film_look_renders_with_every_effect_and_keeps_the_audio_right():
     d, tracks = _setup(n=2, secs=6)
     durs = [playlist.audio_duration(t) for t in tracks]
-    look = {"grain": 2, "vignette": True, "flicker": True, "dust": True, "tint": "warm", "fps": 12}
+    look = {"grain": 2, "vignette": True, "flicker": True, "dust": True, "scratches": True, "tint": "warm", "fps": 12}
     out = video.render_video(tracks, d / "still.png", d / "look.mp4", durs, crossfade=2.0, fade_in=1, fade_out=2, look=look)
     info = video.probe(out)
     assert abs(info["duration"] - (sum(durs) - 2.0)) < 0.6 and info["size"] == (1920, 1080) and info["vcodec"] == "h264"
@@ -87,3 +87,12 @@ def test_film_look_per_video_choice_beats_the_default(monkeypatch):
     assert projects.film_look(p) is None                                          # "off" on this video wins
     projects.set_meta(p, film_look={"vignette": True})
     assert projects.film_look(p)["vignette"] is True
+
+
+def test_light_film_adds_no_colour_cast_and_no_lift(tmp_path):
+    import numpy as np
+    still = tmp_path / "s.png"; Image.new("RGB", (1920, 1080), (200, 120, 90)).save(still)
+    clip = video.look_preview(still, tmp_path / "c.mp4", video.PRESETS["light film"], 2)
+    subprocess.run([video.ffmpeg_exe(), "-v", "error", "-y", "-i", str(clip), "-frames:v", "1", str(tmp_path / "f.png")], check=True)
+    a = np.asarray(Image.open(still).convert("RGB")).astype(int); b = np.asarray(Image.open(tmp_path / "f.png").convert("RGB")).astype(int)
+    assert np.abs((b - a).mean(axis=(0, 1))).max() < 3          # the overlays must not change the picture's colour or brightness

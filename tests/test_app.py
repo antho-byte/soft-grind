@@ -194,8 +194,8 @@ def test_film_look_controls_save_per_video_and_can_be_switched_off():
     tog = [t for t in at.toggle if t.key == "look_on_mix-001"][0]
     assert tog.value is False
     tog.set_value(True); at.run(); assert not at.exception, at.exception
-    assert projects.film_look(p) is not None and projects.film_look(p)["grain"] == 1          # the gentle default
-    [s for s in at.select_slider if s.key == "look_grain_mix-001"][0].set_value(2); at.run(); assert not at.exception
+    lk = projects.film_look(p); assert lk and lk["dust"] and lk["scratches"] and lk["grain"] == 0     # the light default: no grain
+    [s for s in at.select_slider if s.key == "look_grain_mix-001_0"][0].set_value(2); at.run(); assert not at.exception
     assert projects.film_look(p)["grain"] == 2
     [t for t in at.toggle if t.key == "look_on_mix-001"][0].set_value(False); at.run(); assert not at.exception
     assert projects.film_look(p) is None
