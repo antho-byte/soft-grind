@@ -104,3 +104,19 @@ def test_plain_language_errors_keep_the_original_for_copying():
     for raw, word in cases.items():
         e = errors.explain(raw); assert word in e["title"] and e["advice"] and e["raw"] == raw, raw
     assert errors.explain("")["title"]
+
+
+def test_free_space(tmp_path, monkeypatch):
+    from soft_grind import projects
+    monkeypatch.setenv("SOFTGRIND_HOME", str(tmp_path / "home"))
+    p = tmp_path / "mix-001"; (p / "tracks").mkdir(parents=True); (p / "images").mkdir()
+    (p / "tracks" / "a.mp3").write_bytes(b"x" * 2000); (p / "images" / "i.png").write_bytes(b"y" * 1000)
+    (p / "thumbnail.png").write_bytes(b"t")
+    import pytest
+    with pytest.raises(RuntimeError):                       # no video yet: nothing may be deleted
+        projects.free_space(p)
+    assert (p / "tracks" / "a.mp3").exists()
+    (p / "video.mp4").write_bytes(b"v")
+    assert projects.free_space(p) >= 0
+    assert not (p / "tracks").exists() and not (p / "images").exists()
+    assert (p / "video.mp4").exists() and (p / "thumbnail.png").exists()

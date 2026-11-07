@@ -502,6 +502,24 @@ if step == "projects":
                             st.rerun()
                         except RuntimeError as e:
                             st.error(str(e))
+                if info["has_video"] and (info["path"] / "tracks").is_dir() and not info["render"]["running"] and not au["running"]:
+                    if st.button("free up space", key=f"free_{info['name']}", type="tertiary", width="stretch",
+                                 help="Deletes the songs and working images of this finished video. The video, thumbnail and upload text stay."):
+                        st.session_state["_confirm_free"] = info["name"]
+                    if st.session_state.get("_confirm_free") == info["name"]:
+                        st.warning("Delete the songs and working images of this video? The finished video stays, but you can no longer remake it from the songs.")
+                        f1, f2 = st.columns(2)
+                        if f1.button("yes, free it", key=f"freeyes_{info['name']}", type="primary", width="stretch"):
+                            try:
+                                mb = projects.free_space(info["path"])
+                                st.session_state.pop("_confirm_free", None)
+                                st.toast(f"freed {mb:.0f} MB from {info['name']}.")
+                                st.rerun()
+                            except RuntimeError as e:
+                                st.error(str(e))
+                        if f2.button("keep them", key=f"freeno_{info['name']}", width="stretch"):
+                            st.session_state.pop("_confirm_free", None)
+                            st.rerun()
                 o1, o2 = st.columns(2)
                 if o1.button("open", key=f"open_{info['name']}", width="stretch"):
                     open_project(info["name"], info["stage"])

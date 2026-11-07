@@ -198,6 +198,8 @@ def list_projects(root: Path) -> list[dict]:
             continue
         n, secs = track_stats(p)
         m = meta(p)
+        if not n and m.get("freed_tracks"):                   # songs were cleaned up after the video was made
+            n, secs = m["freed_tracks"], m.get("freed_seconds", 0)
         info = {"name": p.name, "path": p, "tracks": n, "seconds": secs, "cover": cover_path(p),
                 "quote": m.get("quote", ""), "playlist_name": m.get("playlist_name", ""),
                 "has_thumbnail": (p / "thumbnail.png").exists(), "has_upload": bool(m.get("title")) and (p / "upload.txt").exists(),
@@ -312,6 +314,26 @@ def cancel_job(pdir: Path) -> None:
 # ---------- trash: delete is a move, so a mistake can be undone ----------
 def is_busy(pdir: Path) -> bool:
     return job_status(pdir)["running"] or render_status(pdir)["running"] or auto_status(pdir)["running"]
+
+
+def free_space(pdir: Path) -> float:
+    """Delete the songs and working images of a FINISHED video (the video, thumbnail and upload text stay). Returns MB freed."""
+    import shutil
+    pdir = Path(pdir)
+    if is_busy(pdir):
+        raise RuntimeError(f"{pdir.name} is still being made.")
+    if not (pdir / "video.mp4").exists():
+        raise RuntimeError("Only finished videos can be cleaned up: make the video first, so nothing is lost.")
+    n, secs = track_stats(pdir)
+    freed = 0
+    for sub in ("tracks", "images"):
+        d = pdir / sub
+        if d.is_dir():
+            freed += sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+            shutil.rmtree(d, ignore_errors=True)
+    if n:
+        set_meta(pdir, freed_tracks=n, freed_seconds=secs)
+    return round(freed / 1e6, 1)
 
 
 def trash_project(pdir: Path) -> Path:

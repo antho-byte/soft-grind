@@ -11,10 +11,14 @@ export ACEDATACLOUD_API_TOKEN=...   # optional; without it the app runs in mock 
 streamlit run app.py
 ```
 
-1. **music** – style presets (lofi soul / japanese jazz / city pop funk), scene flavours, generates instrumental
-   tracks through the AceDataCloud Suno API (the API behind SunoMCP). Max 360 s per request.
-2. **playlist** – replaces usesuno.com: paste a published suno.com/playlist link, song links, or import a folder.
-3. **thumbnail** – image + quote → 1280×720 thumbnail and 1920×1080 still (normal or cyberpunk), bulk mode + contact sheet.
-4. **youtube** – title, description with real timestamps (minus crossfade), tags, pinned comment, `upload.txt`.
+Pages: **videos** (one card per mix; new video step by step or fully automatic), **images** (your picture library),
+**settings** (keys, phone messages, password, setup check). Each video has three tabs: **music**, **cover**, **video**.
+
+- **automatic mode** makes the whole video in the background: music, picture, headline, thumbnail, video, text.
+- **phone messages** (settings): a free ntfy.sh topic pings your phone when a video is done or needs you.
+- **credits used** are tracked per video (estimates) and shown on the videos page.
+- **free up space** on a finished video deletes its songs and working images and keeps the video, thumbnail and upload text.
+- **remote access** from your phone: see `docs/REMOTE.md` (Tailscale, always set a password first).
+- The app updates itself on start and rolls back if a new version fails its self-test.
 
 Everything is saved in `projects/<name>/`. Tests: `pytest tests`.
