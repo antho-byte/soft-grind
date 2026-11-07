@@ -35,14 +35,33 @@ h1,h2,h3{font-family:'Abril Fatface',serif!important;font-weight:400!important;c
 [data-testid="stSidebar"]{background:#fff!important;border-right:1px solid var(--line)}
 [data-testid="stSidebar"] [data-testid="stSidebarContent"]{padding-top:1rem}
 [data-testid="stSidebar"]{color:var(--indigo)}
-.stApp .st-key-rail button[data-testid^="stBaseButton"]{justify-content:flex-start!important;text-align:left!important;border:0!important;background:transparent!important;border-radius:12px!important;padding:.55rem .8rem!important;box-shadow:none!important}
-.stApp .st-key-rail button>div{justify-content:flex-start!important;width:100%}
-.stApp .st-key-rail button p{font-size:15px!important;font-weight:600!important;color:var(--indigo)!important;text-align:left!important}
-.stApp .st-key-rail button[data-testid="stBaseButton-primary"]{background:#FFE9E4!important;box-shadow:inset 3px 0 0 var(--coral)!important}
-.stApp .st-key-rail button[data-testid="stBaseButton-primary"] p{font-weight:700!important}
-.stApp .st-key-rail button:hover{background:#FBF1E6!important}
+.stApp .st-key-menu button[data-testid^="stBaseButton"]{justify-content:flex-start!important;text-align:left!important;border:0!important;background:transparent!important;border-radius:12px!important;padding:.55rem .8rem!important;box-shadow:none!important}
+.stApp .st-key-menu button>div{justify-content:flex-start!important;width:100%}
+.stApp .st-key-menu button p{font-size:15px!important;font-weight:600!important;color:var(--indigo)!important;text-align:left!important}
+.stApp .st-key-menu button[data-testid="stBaseButton-primary"]{background:#FFE9E4!important;box-shadow:inset 3px 0 0 var(--coral)!important}
+.stApp .st-key-menu button[data-testid="stBaseButton-primary"] p{font-weight:700!important}
+.stApp .st-key-menu button:hover{background:#FBF1E6!important}
+.sg-foot{font-size:12px;color:var(--muted);margin-top:18px;padding:0 .8rem}
 .sg-step-sub{font-size:12.5px;color:var(--muted);margin:-12px 0 8px 2.9rem;line-height:1.3}
 .sg-step-sub.done{color:#17614A}
+
+/* tabs inside one video */
+.st-key-vtabs{margin:-6px 0 18px}
+.stApp .st-key-vtabs button{border-radius:999px!important;min-height:44px}
+.stApp .st-key-vtabs button[data-testid="stBaseButton-secondary"]{background:rgba(255,255,255,.7)!important}
+
+/* the menu again in the page, for phones where the sidebar is hidden */
+.st-key-topnav{display:none;margin-bottom:10px}
+@media (max-width: 900px){
+  .st-key-topnav{display:block}
+  .stApp button{min-height:46px}
+  .block-container{padding-left:1rem!important;padding-right:1rem!important}
+  .sg-title{font-size:36px}
+  .st-key-topnav [data-testid="stHorizontalBlock"],.st-key-vtabs [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important;gap:.4rem!important}
+  .st-key-topnav [data-testid="stColumn"],.st-key-vtabs [data-testid="stColumn"]{min-width:0!important;flex:1 1 0!important;width:auto!important}
+  .stApp .st-key-topnav button,.stApp .st-key-vtabs button{padding:.3rem .2rem!important}
+  .stApp .st-key-topnav button p,.stApp .st-key-vtabs button p{font-size:14px!important}
+}
 
 /* cards */
 [class*="st-key-card"]{background:#fff;border-radius:22px;padding:26px 28px!important;box-shadow:0 10px 30px rgba(20,24,82,.07);margin-bottom:18px}
@@ -79,6 +98,28 @@ h1,h2,h3{font-family:'Abril Fatface',serif!important;font-weight:400!important;c
 .stApp [role="slider"]{background:var(--coral)!important}
 .stApp [data-testid="stExpander"]{border:1px solid var(--line)!important;border-radius:14px!important;background:#fff}
 .stApp [data-testid="stAlert"]{border-radius:14px}
+/* notices in the brand palette instead of the default blue / yellow / red / green */
+[data-testid="stAlertContainer"]{border-radius:14px!important;border:0!important;background:#EDEBFF!important}
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]){background:#FFF0D9!important}
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]){background:#FFE0DA!important}
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentSuccess"]){background:#DDF1E6!important}
+[data-testid="stAlertContainer"] p,[data-testid="stAlertContainer"] li,[data-testid="stAlertContainer"] strong{color:var(--indigo)!important}
+/* readable help text (Streamlit fades captions to 60%) */
+.stApp [data-testid="stCaptionContainer"]{opacity:1!important}
+/* readable tags */
+[data-testid="stMultiSelectTagsContainer"] span{color:var(--indigo)!important}
+/* disabled buttons that can still be read */
+.stApp button[data-testid^="stBaseButton"]:disabled{opacity:1!important;background:#EDE3D3!important;color:rgba(20,24,82,.62)!important;border-color:transparent!important}
+.stApp button[data-testid^="stBaseButton"]:disabled p{color:rgba(20,24,82,.62)!important}
+/* a quiet, clearly separate delete */
+.stApp button[data-testid="stBaseButton-tertiary"]{color:#8A2A1B!important;background:transparent!important;border:0!important;font-weight:600}
+.stApp button[data-testid="stBaseButton-tertiary"] p{color:#8A2A1B!important}
+.stApp button[data-testid="stBaseButton-tertiary"]:hover{text-decoration:underline}
+/* cards of one row share a height */
+[data-testid="stColumn"]:has([class*="st-key-card_proj"])>[data-testid="stVerticalBlock"]{height:100%}
+[data-testid="stColumn"]:has([class*="st-key-card_proj"])>[data-testid="stVerticalBlock"]>*:has([class*="st-key-card_proj"]),
+[data-testid="stColumn"]:has([class*="st-key-card_proj"])>[data-testid="stVerticalBlock"]>*:has([class*="st-key-card_proj"])>*{height:100%}
+[class*="st-key-card_proj"]{height:100%;box-sizing:border-box}
 [data-testid="stAppDeployButton"],.stDeployButton{display:none!important}
 .stApp [data-baseweb="input"]>div,.stApp [data-baseweb="base-input"],.stApp [data-baseweb="textarea"],.stApp [data-baseweb="textarea"] textarea,.stApp [data-baseweb="select"]>div,.stApp [data-baseweb="select"]>div>div{background:#FBF7F0!important}
 .stApp [data-testid="stTextInputRootElement"],.stApp [data-testid="stNumberInputContainer"],.stApp [data-testid="stSelectbox"] [data-baseweb="select"]>div,.stApp [data-testid="stMultiSelect"] [data-baseweb="select"]>div,.stApp [data-testid="stTextArea"] [data-baseweb="textarea"]{background:#FBF7F0!important;border:1.5px solid rgba(20,24,82,.18)!important;border-radius:12px!important}

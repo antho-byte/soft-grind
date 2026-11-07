@@ -3,7 +3,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["NO_PROXY"] = "127.0.0.1"; os.environ["no_proxy"] = "127.0.0.1"
-from soft_grind import ai, brand, metadata, texts
+from soft_grind import ai, metadata, texts
 
 TRACKS = [{"title": f"track {i}", "duration": 240.0} for i in range(5)]
 GOOD = {"title_suffix": "japanese city pop for deep focus", "subline": "soft rain, steady pages.",

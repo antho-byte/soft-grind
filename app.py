@@ -29,18 +29,37 @@ if security.password_hash() and not st.session_state.get("_auth"):         # opt
 PROJECTS = settings.projects_dir()
 SAVED = settings.load_keys()
 
-STEPS = ["projects", "music", "playlist", "library", "fix images", "thumbnail", "video"]
+MENU = [("projects", "videos"), ("library", "images"), ("settings", "settings")]            # the whole app
+TABS = [("music", "music"), ("thumbnail", "cover"), ("video", "video")]                         # inside one video
+VIDEO_STEPS = {"music", "thumbnail", "video"}
 TITLES = {
     "projects": ("your videos.", "every video you made, with its cover. open one to keep going."),
-    "music": ("make the music.", "pick a sound, press generate, get instrumental tracks."),
-    "playlist": ("the playlist.", "pull in your tracks, check the titles and the order."),
     "library": ("the images.", "your folder of images: let the app look at them, then match them to your videos."),
-    "fix images": ("fix the photos.", "turn vertical photos into 16:9."),
-    "thumbnail": ("the cover.", "one image, one quote, one logo."),
+    "settings": ("settings.", "keys, folders, security, and a check that everything is ready."),
+    "music": ("make the music.", "pick a sound, press generate, get instrumental tracks. check and rename them below."),
+    "thumbnail": ("the cover.", "one image, one headline, one logo."),
     "video": ("the video.", "watch it, check the words, pick a day to publish."),
-    "setup": ("check the setup.", "keys, folders and background jobs: is everything ready to make videos?"),
 }
-st.session_state.setdefault("step", "projects")
+_REMAP = {"setup": "settings", "playlist": "music", "fix images": "thumbnail"}                  # older names
+st.session_state["step"] = _REMAP.get(st.session_state.get("step", "projects"), st.session_state.get("step", "projects"))
+
+# settings that every page reads (the settings page edits them)
+st.session_state.setdefault("_cfg_suno", os.getenv("ACEDATACLOUD_API_TOKEN") or SAVED.get("suno", ""))
+st.session_state.setdefault("_cfg_image", os.getenv("ACEDATACLOUD_IMAGE_TOKEN") or SAVED.get("image", ""))
+st.session_state.setdefault("_cfg_ai", os.getenv("ACEDATACLOUD_AI_TOKEN") or SAVED.get("ai", ""))
+st.session_state.setdefault("_cfg_ai_model", SAVED.get("ai_model") or ai.DEFAULT_MODEL)
+st.session_state.setdefault("_cfg_crossfade", metadata.CROSSFADE)
+
+
+def read_cfg():
+    """The current keys and switches (practice mode follows the key: no key = practice mode, unless you chose otherwise)."""
+    g = st.session_state
+    return (g["_cfg_suno"], g["_cfg_image"], g["_cfg_ai"], g["_cfg_ai_model"], g["_cfg_crossfade"],
+            g.get("_cfg_mock", not g["_cfg_suno"]), g.get("_cfg_img_mock", not g["_cfg_image"]), g.get("_cfg_ai_mock", not g["_cfg_ai"]))
+
+
+token, img_token, ai_token, ai_model, crossfade, mock, img_mock, ai_mock = read_cfg()
+
 
 
 def go(step_name):
@@ -181,55 +200,101 @@ def job_panel(pdir_):
     st.fragment(run_every=3 if projects.job_status(pdir_)["running"] else None)(body)()
 
 
-# ---------------- sidebar: logo, project, progress rail, settings ----------------
+# ---------------- which video we are working on, the sidebar ----------------
+proj_list = projects.list_projects(PROJECTS)
+proj_names = [p["name"] for p in proj_list]
+name = st.session_state.get("project") or (proj_names[0] if proj_names else "mix-001")
+st.session_state["project"] = name
+pdir = PROJECTS / (playlist.safe_name(name).replace(" ", "-") or "mix")
+tracks_dir = pdir / "tracks"
+step = st.session_state["step"]
+if step in VIDEO_STEPS:
+    tracks_dir.mkdir(parents=True, exist_ok=True)
+
+
+def switch_video(nm):
+    st.session_state.update(project=st.session_state[f"pick_{nm}"], tracks=[], fix_results={})
+    for k in ("_job_was_running", "_render_was_running", "_ai_note", "_style_before"):
+        st.session_state.pop(k, None)
+
+
 with st.sidebar:
     st.markdown(theme.logo_html(), unsafe_allow_html=True)
     st.markdown('<div class="sg-tag">city pop to work and study to.</div>', unsafe_allow_html=True)
-    name = st.text_input("project name", st.session_state.get("project", "mix-001"))
-    st.session_state["project"] = name
-    pdir = PROJECTS / (playlist.safe_name(name).replace(" ", "-") or "mix")
-    tracks_dir = pdir / "tracks"; tracks_dir.mkdir(parents=True, exist_ok=True)
-    rail_slot = st.container(key="rail")  # filled at the end, so it shows fresh status
-    with st.expander("keys and settings"):
+    menu_slot = st.container(key="menu")                   # filled at the end, so it shows fresh status
+    if step in VIDEO_STEPS and proj_names:
+        quotes = {p["name"]: p["quote"] for p in proj_list}
+        options = proj_names if name in proj_names else [name] + proj_names
+        st.selectbox("working on", options, index=options.index(name), key=f"pick_{name}", on_change=switch_video, args=(name,),
+                     format_func=lambda n: f"{n} · {quotes[n]}" if quotes.get(n) else n)
+    st.markdown('<div class="sg-foot">your keys and videos stay on this computer.</div>', unsafe_allow_html=True)
+
+
+
+st.session_state.setdefault("tracks", [])
+_files = projects.audio_files(tracks_dir)
+_inside = all(Path(t["path"]).parent.resolve() == tracks_dir.resolve() for t in st.session_state["tracks"])  # not an imported folder
+if st.session_state.pop("_reload", False) or (_inside and len(_files) != len(st.session_state["tracks"])):
+    st.session_state["tracks"] = playlist.tracks_from_folder(tracks_dir) if _files else []
+tracks = st.session_state["tracks"]
+imgs_dir = pdir / "images"
+
+topnav_slot = st.container(key="topnav")                  # the sidebar is hidden behind a button on phones, so the menu is repeated here
+crumb = {"projects": "all videos", "library": "images", "settings": "settings"}.get(step, f"videos › {name}")
+theme.page_title(crumb, *TITLES[step])
+tabs_slot = st.container(key="vtabs") if step in VIDEO_STEPS else None
+if st.session_state.get("_last_view") != (step, name):                    # a new page: start at the top, not where the last one was scrolled
+    st.session_state["_last_view"] = (step, name)
+    st.iframe("<script>const m=window.parent.document.querySelector('[data-testid=\"stMain\"]');if(m){m.scrollTo(0,0);}</script>", height=1)
+
+
+if step == "settings":
+    with st.container(key="card_keys"):
+        st.markdown("**keys**")
+        st.caption("Without a key the app runs in practice mode: fake songs and images, no cost. Keys are stored on this computer only.")
         st.caption("suno (AceDataCloud)")
-        token = st.text_input("API token", os.getenv("ACEDATACLOUD_API_TOKEN") or SAVED.get("suno", ""), type="password",
-                              help="platform.acedata.cloud → Applications. Generation costs credits.")
-        mock = st.checkbox("mock mode (no API, fake short tones)", value=not token)
+        st.session_state["_cfg_suno"] = st.text_input("API token", st.session_state["_cfg_suno"], type="password", key="w_cfg_suno",
+                                                      help="platform.acedata.cloud → Applications. Generation costs credits.")
+        st.session_state["_cfg_mock"] = st.checkbox("practice mode (no API, fake short tones)", value=not st.session_state["_cfg_suno"])
         st.caption("image tool (AceDataCloud)")
-        img_token = st.text_input("image API token", os.getenv("ACEDATACLOUD_IMAGE_TOKEN") or SAVED.get("image", ""), type="password",
-                                  help="A separate key (own budget cap) for the Nano Banana image models.")
-        img_mock = st.checkbox("image mock mode (no API, free)", value=not img_token)
+        st.session_state["_cfg_image"] = st.text_input("image API token", st.session_state["_cfg_image"], type="password", key="w_cfg_image",
+                                                       help="A separate key (own budget cap) for the Nano Banana image models.")
+        st.session_state["_cfg_img_mock"] = st.checkbox("image practice mode (no API, free)", value=not st.session_state["_cfg_image"])
         st.caption("AI helper (AceDataCloud chat)")
-        ai_token = st.text_input("AI helper token", os.getenv("ACEDATACLOUD_AI_TOKEN") or SAVED.get("ai", ""), type="password",
-                                 help="Its own key with its own usage limit. Used for the “improve with AI” buttons.")
-        ai_model = st.text_input("AI model", SAVED.get("ai_model") or ai.DEFAULT_MODEL,
-                                 help="Exact model name from the Chat tab at platform.acedata.cloud/models, e.g. a Claude Haiku.")
-        ai_mock = st.checkbox("AI mock mode (no API, free)", value=not ai_token)
-        if st.button("save keys on this computer"):
+        st.session_state["_cfg_ai"] = st.text_input("AI helper token", st.session_state["_cfg_ai"], type="password", key="w_cfg_ai",
+                                                    help="Its own key with its own usage limit. Used for the AI buttons.")
+        st.session_state["_cfg_ai_model"] = st.text_input("AI model", st.session_state["_cfg_ai_model"], key="w_cfg_ai_model",
+                                                          help="Exact model name from the Chat tab at platform.acedata.cloud/models, e.g. a Claude Haiku.")
+        st.session_state["_cfg_ai_mock"] = st.checkbox("AI practice mode (no API, free)", value=not st.session_state["_cfg_ai"])
+        token, img_token, ai_token, ai_model, crossfade, mock, img_mock, ai_mock = read_cfg()
+        if st.button("save keys on this computer", type="primary"):
             settings.save_keys(token, img_token, ai_token, ai_model)
             st.success("saved: you won't need to paste them again")
-        crossfade = st.number_input("crossfade (s)", 0.0, 10.0, metadata.CROSSFADE, 0.5)
-        st.caption("where your projects are saved")
+    with st.container(key="card_folders"):
+        st.markdown("**folders and video**")
+        st.session_state["_cfg_crossfade"] = st.number_input("crossfade (s)", 0.0, 10.0, st.session_state["_cfg_crossfade"], 0.5,
+                                                             help="The overlap between songs. The timestamps in the description use it.")
+        st.caption("where your videos are saved")
         folder_in = st.text_input("projects folder", str(PROJECTS),
-                                  help="Tracks, thumbnails and upload.txt of every project. Choosing the app's own folder uses its “projects” subfolder.")
+                                  help="Tracks, thumbnails and upload.txt of every video. Choosing the app's own folder uses its “projects” subfolder.")
         if st.button("use this folder"):
             newp = settings.save_projects_dir(folder_in)
             st.session_state["tracks"] = []
-            st.toast(f"projects now live in {newp}")
+            st.toast(f"videos now live in {newp}")
             st.rerun()
         old_dir = settings.DEFAULT_PROJECTS
         if old_dir.is_dir() and old_dir.resolve() != PROJECTS.resolve() and any(p.is_dir() for p in old_dir.iterdir()):
-            st.caption(f"projects found in the old folder: `{old_dir}`")
-            if st.button("move my existing projects here"):
+            st.caption(f"videos found in the old folder: `{old_dir}`")
+            if st.button("move my existing videos here"):
                 moved, skipped = settings.move_projects(old_dir, PROJECTS)
                 st.session_state["tracks"] = []
                 if moved:
                     st.success("moved: " + ", ".join(moved))
                 if skipped:
                     st.warning("left in place (already has files in the new folder): " + ", ".join(skipped))
-        st.button("check my setup", on_click=go, args=("setup",), width="stretch",
-                  help="Tests the keys, folders, video tool and background jobs, and tells you what to fix.")
-        st.caption("security")
+        st.caption(f"your keys live in `{settings.DATA_DIR}`, outside the app folder")
+    with st.container(key="card_security"):
+        st.markdown("**security**")
         pw_new = st.text_input("app password", type="password", placeholder="set or change the password (8+ characters)",
                                help="Asked every time the app opens. Stored as a scrambled hash, not as text.")
         sp1, sp2 = st.columns(2)
@@ -256,21 +321,8 @@ with st.sidebar:
             st.caption(f"After a restart, open `{security.lan_url()}` on a device on the same network, and enter the password.")
         else:
             st.caption("Right now only this computer can open the app.")
-        st.caption(f"your keys live in `{settings.DATA_DIR}`, outside the app folder")
-
-st.session_state.setdefault("tracks", [])
-_files = projects.audio_files(tracks_dir)
-_inside = all(Path(t["path"]).parent.resolve() == tracks_dir.resolve() for t in st.session_state["tracks"])  # not an imported folder
-if st.session_state.pop("_reload", False) or (_inside and len(_files) != len(st.session_state["tracks"])):
-    st.session_state["tracks"] = playlist.tracks_from_folder(tracks_dir) if _files else []
-tracks = st.session_state["tracks"]
-imgs_dir = pdir / "images"
-
-step = st.session_state["step"]
-theme.page_title("all videos" if step == "projects" else (f"videos › {name}" if step == "video" else f"{name} / {step}"), *TITLES[step])
-
-if step == "setup":
     with st.container(key="card_setup"):
+        st.markdown("**check my setup**")
         st.caption("Each key is tested with a free question that does not make anything, so this costs nothing. "
                    "The AI key uses a few words of text (a fraction of a cent).")
         if st.button("check again", type="primary"):
@@ -290,9 +342,15 @@ if step == "setup":
         st.download_button("download diagnostics.txt", diag, "diagnostics.txt")
 
 if step == "projects":
-    h1, h2 = st.columns([4, 1])
-    h2.button("new video", type="primary", on_click=new_video, width="stretch")
-    with st.expander("make a whole video automatically", expanded=True):
+    t1, t2 = st.columns([3, 1])
+    with t2.popover("new video", width="stretch"):
+        st.button("step by step", on_click=new_video, width="stretch", type="primary")
+        st.caption("you choose the music, the image and the words yourself, one tab at a time")
+        st.button("automatic: the whole video", on_click=lambda: st.session_state.update(_auto_open=True), width="stretch")
+        st.caption("one button: music, image, headline, cover, video and text")
+
+    def auto_form():
+        st.markdown("**make a whole video automatically**")
         st.caption("One button: the app makes the music, picks an image from your library, writes the headline, builds the thumbnail "
                    "and the video, and writes the YouTube text. You check it afterwards.")
         f1, f2 = st.columns(2)
@@ -306,7 +364,7 @@ if step == "projects":
         auto_improve = g3.checkbox("AI improves the music prompt", value=ai_on, disabled=not ai_on, key="auto_improve")
         n_songs = LENGTHS[auto_len]
         st.caption(f"about {n_songs / 2 * 0.28 + (0.03 if ai_on else 0):.1f} credits · runs in the background, so you can leave the page · "
-                   "needs your image library to be looked at (library step) · start one video at a time for the first tries")
+                   "needs your image library to be looked at (images page) · start one video at a time for the first tries")
         if st.button("make the video", type="primary", disabled=not (mock or token) or not auto_scenes):
             nm = projects.create_project(PROJECTS)
             pd_ = PROJECTS / nm
@@ -317,8 +375,27 @@ if step == "projects":
                                       "improve_prompt": bool(auto_improve and ai_on), "use_ai": ai_on, "ai_model": ai_model,
                                       "crossfade": crossfade, "fade_in": 3.0, "fade_out": 6.0},
                                 token, ai_token if ai_on else "")
+            st.session_state["_auto_open"] = False
             st.toast(f"started {nm}")
             st.rerun()
+        if st.button("cancel", key="auto_cancel"):
+            st.session_state["_auto_open"] = False
+            st.rerun()
+
+    todo = [("Suno key", bool(token)), ("image key", bool(img_token)), ("AI helper key", bool(ai_token)),
+            ("image folder", bool(settings.library_dir()))]
+    if not all(ok for _, ok in todo) and not st.session_state.get("_hide_start"):
+        with st.container(key="card_start"):
+            st.markdown("**getting started**")
+            st.markdown("   ".join(f"{'✓' if ok else '○'} {lbl}" for lbl, ok in todo))
+            st.caption("Until the keys are in, the app runs in practice mode: fake songs and images, no cost. "
+                       "Add them in settings, then use “check my setup”.")
+            s1, s2, _ = st.columns([1, 1, 2])
+            s1.button("open settings", on_click=go, args=("settings",), type="primary", width="stretch")
+            s2.button("hide this", on_click=lambda: st.session_state.update(_hide_start=True), width="stretch")
+    if st.session_state.get("_auto_open"):
+        with st.container(key="card_auto"):
+            auto_form()
     dups = fixes.duplicates(PROJECTS)
     if dups:
         with st.expander(f"{sum(len(n) - 1 for _, n in dups)} videos share a headline with another video", expanded=True):
@@ -334,14 +411,27 @@ if step == "projects":
             "making the video": "#E7E5FF", "needs youtube text": "#FFE4EE", "ready": "#DDF1E6",
             "making it": "#E7E5FF", "needs attention": "#FFD9D2"}
 
+    GROUPS = {"in progress": ("making music", "making the video", "making it"), "needs attention": ("needs attention",),
+              "to finish": ("new", "needs a thumbnail", "needs the video", "needs youtube text"), "ready": ("ready",)}
+    flt, query = "all", ""
+    if len(proj_list) > 3:
+        fa, fb = st.columns([1, 2])
+        flt = fa.selectbox("show", ["all"] + list(GROUPS), key="vid_filter")
+        query = fb.text_input("search", placeholder="search by name or headline", key="vid_search").strip().lower()
+
     def grid():
         items = projects.list_projects(PROJECTS)
         if not items:
             st.info("No videos yet. Press **new video** to start the first one.")
             return
-        cols = st.columns(3)
+        items = [i for i in items if (flt == "all" or i["stage"] in GROUPS[flt])
+                 and (not query or query in (i["name"] + " " + i["quote"] + " " + i["title"]).lower())]
+        if not items:
+            st.info("No video matches this filter.")
+            return
+        rows = [st.columns(3) for _ in range((len(items) + 2) // 3)]                 # one row at a time, so cards line up
         for i, info in enumerate(items):
-            with cols[i % 3], st.container(key=f"card_proj_{info['name']}"):
+            with rows[i // 3][i % 3], st.container(key=f"card_proj_{info['name']}"):
                 if info["cover"]:
                     theme.show_image(info["cover"], width="stretch")
                 else:
@@ -375,7 +465,7 @@ if step == "projects":
                 if o1.button("open", key=f"open_{info['name']}", width="stretch"):
                     open_project(info["name"], info["stage"])
                     st.rerun()                                           # full rerun, so the page switches
-                if o2.button("delete", key=f"del_{info['name']}", width="stretch"):
+                if o2.button("delete", key=f"del_{info['name']}", type="tertiary", width="stretch"):
                     st.session_state["_confirm_delete"] = info["name"]
                 if st.session_state.get("_confirm_delete") == info["name"]:
                     st.warning(f"Move {info['name']} to the trash? Its songs, thumbnail and video go with it. You can restore it from the trash below.")
@@ -481,8 +571,9 @@ if step == "music":
                        "Keep the black window open and the computer awake.")
             job_panel(pdir)
 
-if step == "playlist":
+if step == "music":
     with st.container(key="card_playlist"):
+            st.markdown("**the tracks**")
             st.caption("Replaces the usesuno.com step: paste your published playlist, or import a folder you already downloaded.")
             src = st.radio("get tracks from", ["suno playlist link", "song links", "local folder"], horizontal=True)
             try:
@@ -597,77 +688,6 @@ if step == "library":
                     st.caption("not looked at yet")
                 if str(p) in used_map:
                     st.markdown(f'<span class="sg-pill" style="background:#E7E5FF">used in {used_map[str(p)]}</span>', unsafe_allow_html=True)
-
-if step == "fix images":
-    with st.container(key="card_fix_images"):
-            st.caption("Drop in your photos. The free option fills the sides with a blurred copy; the AI option "
-                       "extends the scene (like your Gemini step). Pick the ones you like and they show up in the thumbnail step.")
-            st.warning("Only use photos you have the rights to (your own, licensed, or AI-generated). "
-                       "Pinterest photos usually belong to someone else. Check each result for garbled text, "
-                       "signatures or logos.")
-            if img_mock:
-                st.info("image mock mode is ON: the AI results are fake (just a colour-boosted blur). "
-                        "Paste your image API token under “keys and settings” in the sidebar and untick “image mock mode” to use the real models.")
-            ups = st.file_uploader("photos", type=["png", "jpg", "jpeg", "webp"], accept_multiple_files=True, key="fix_up")
-            c1, c2 = st.columns(2)
-            use_blur = c1.checkbox("free blur fill", True)
-            models = c2.multiselect("AI models to compare", list(imagegen.MODELS), ["nano-banana-2.1"])
-            resolution = st.select_slider("AI output size", ["1K", "2K", "4K"], "2K",
-                                          help="2K is about 2048px wide, enough for your 1920px rule. "
-                                               "nano-banana (the plain one) only does 1K. Bigger sizes may cost more.")
-            prompt = st.text_area("AI instruction", imagegen.DEFAULT_PROMPT, height=110)
-            templates = {}
-            with st.expander("advanced: the exact request sent to the AI (edit if you get an error)"):
-                st.caption("{image}, {prompt} and {model} are filled in automatically. Keys are named per the "
-                           "AceDataCloud Nano Banana docs; if the API complains about a field, change it here.")
-                for m in models:
-                    ep0, tpl0, _, _ = imagegen.MODELS[m]
-                    ep = st.text_input(f"{m}: endpoint", ep0, key=f"ep_{m}")
-                    body = st.text_area(f"{m}: request (JSON)", json.dumps(tpl0, indent=2), height=170, key=f"tpl_{m}")
-                    templates[m] = (ep, body)
-            if ups and models:
-                cost = sum(imagegen.MODELS[m][2] for m in models) * len(ups)
-                st.info(f"{len(ups)} photos × {len(models)} models = {len(ups) * len(models)} AI calls ≈ ${cost:.2f} "
-                        "at the cheapest top-up tier (your real price per credit is probably higher).")
-            st.session_state.setdefault("fix_results", {})
-            if ups and st.button("make 16:9 versions", type="primary"):
-                imgs_dir.mkdir(parents=True, exist_ok=True)
-                client = imagegen.ImageClient(img_token, mock=img_mock)
-                results, prog = {}, st.progress(0.0); total = len(ups) * (len(models) + int(use_blur)); done = 0
-                for f in ups:
-                    src = Image.open(f); src.load(); src = src.convert("RGB")
-                    stem = Path(f.name).stem
-                    src.save(imgs_dir / f"{stem}_source.png")
-                    canvas = imagegen.blur_fill(src)
-                    row = {"source": src, "outs": {}}
-                    if use_blur:
-                        row["outs"]["blur fill"] = (canvas, ""); done += 1; prog.progress(done / total)
-                    for m in models:
-                        try:
-                            ep, body = templates[m]
-                            out = client.edit(ep, json.loads(body), m, canvas, prompt, resolution)
-                            row["outs"][m] = imagegen.finish_16x9(out)
-                        except json.JSONDecodeError as e:
-                            row["outs"][m] = (None, f"request JSON is invalid: {e}")
-                        except Exception as e:
-                            row["outs"][m] = (None, str(e))
-                        done += 1; prog.progress(done / total)
-                    results[stem] = row
-                st.session_state["fix_results"] = results
-            for stem, row in st.session_state["fix_results"].items():
-                st.markdown(f"**{stem}**")
-                cols = st.columns(1 + len(row["outs"]))
-                cols[0].image(row["source"], caption="original")
-                for col, (label, (img, note)) in zip(cols[1:], row["outs"].items()):
-                    with col:
-                        if img is None:
-                            st.error(f"{label}: {note}")
-                        else:
-                            st.image(img, caption=f"{label} {note}".strip())
-                            if st.button("use this", key=f"use_{stem}_{label}"):
-                                imgs_dir.mkdir(parents=True, exist_ok=True)
-                                out_path = imgs_dir / f"{stem}_16x9.png"; img.save(out_path)
-                                st.success(f"saved {out_path.name}: now pick it in the thumbnail step")
 
 if step == "thumbnail":
     ensure_quote()
@@ -796,11 +816,86 @@ if step == "thumbnail":
             st.image(sheet, caption="contact sheet")
             st.download_button("download zip", zbuf.getvalue(), "softgrind_bulk.zip", "application/zip")
 
+if step == "thumbnail":
+    with st.container(key="card_fix"):
+        fix_on = st.toggle("need a different picture? make a vertical or small photo 16:9", key="fix_on",
+                           help="Fills the sides of a vertical photo, free (blur) or with an AI model.")
+    if fix_on:
+        with st.container(key="card_fix_images"):
+            st.caption("Drop in your photos. The free option fills the sides with a blurred copy; the AI option "
+                       "extends the scene (like your Gemini step). Pick the ones you like and they show up in the thumbnail step.")
+            st.warning("Only use photos you have the rights to (your own, licensed, or AI-generated). "
+                       "Pinterest photos usually belong to someone else. Check each result for garbled text, "
+                       "signatures or logos.")
+            if img_mock:
+                st.info("image mock mode is ON: the AI results are fake (just a colour-boosted blur). "
+                        "Paste your image API token under “keys and settings” in the sidebar and untick “image mock mode” to use the real models.")
+            ups = st.file_uploader("photos", type=["png", "jpg", "jpeg", "webp"], accept_multiple_files=True, key="fix_up")
+            c1, c2 = st.columns(2)
+            use_blur = c1.checkbox("free blur fill", True)
+            models = c2.multiselect("AI models to compare", list(imagegen.MODELS), ["nano-banana-2.1"])
+            resolution = st.select_slider("AI output size", ["1K", "2K", "4K"], "2K",
+                                          help="2K is about 2048px wide, enough for your 1920px rule. "
+                                               "nano-banana (the plain one) only does 1K. Bigger sizes may cost more.")
+            prompt = st.text_area("AI instruction", imagegen.DEFAULT_PROMPT, height=110)
+            templates = {}
+            with st.expander("advanced: the exact request sent to the AI (edit if you get an error)"):
+                st.caption("{image}, {prompt} and {model} are filled in automatically. Keys are named per the "
+                           "AceDataCloud Nano Banana docs; if the API complains about a field, change it here.")
+                for m in models:
+                    ep0, tpl0, _, _ = imagegen.MODELS[m]
+                    ep = st.text_input(f"{m}: endpoint", ep0, key=f"ep_{m}")
+                    body = st.text_area(f"{m}: request (JSON)", json.dumps(tpl0, indent=2), height=170, key=f"tpl_{m}")
+                    templates[m] = (ep, body)
+            if ups and models:
+                cost = sum(imagegen.MODELS[m][2] for m in models) * len(ups)
+                st.info(f"{len(ups)} photos × {len(models)} models = {len(ups) * len(models)} AI calls ≈ ${cost:.2f} "
+                        "at the cheapest top-up tier (your real price per credit is probably higher).")
+            st.session_state.setdefault("fix_results", {})
+            if ups and st.button("make 16:9 versions", type="primary"):
+                imgs_dir.mkdir(parents=True, exist_ok=True)
+                client = imagegen.ImageClient(img_token, mock=img_mock)
+                results, prog = {}, st.progress(0.0); total = len(ups) * (len(models) + int(use_blur)); done = 0
+                for f in ups:
+                    src = Image.open(f); src.load(); src = src.convert("RGB")
+                    stem = Path(f.name).stem
+                    src.save(imgs_dir / f"{stem}_source.png")
+                    canvas = imagegen.blur_fill(src)
+                    row = {"source": src, "outs": {}}
+                    if use_blur:
+                        row["outs"]["blur fill"] = (canvas, ""); done += 1; prog.progress(done / total)
+                    for m in models:
+                        try:
+                            ep, body = templates[m]
+                            out = client.edit(ep, json.loads(body), m, canvas, prompt, resolution)
+                            row["outs"][m] = imagegen.finish_16x9(out)
+                        except json.JSONDecodeError as e:
+                            row["outs"][m] = (None, f"request JSON is invalid: {e}")
+                        except Exception as e:
+                            row["outs"][m] = (None, str(e))
+                        done += 1; prog.progress(done / total)
+                    results[stem] = row
+                st.session_state["fix_results"] = results
+            for stem, row in st.session_state["fix_results"].items():
+                st.markdown(f"**{stem}**")
+                cols = st.columns(1 + len(row["outs"]))
+                cols[0].image(row["source"], caption="original")
+                for col, (label, (img, note)) in zip(cols[1:], row["outs"].items()):
+                    with col:
+                        if img is None:
+                            st.error(f"{label}: {note}")
+                        else:
+                            st.image(img, caption=f"{label} {note}".strip())
+                            if st.button("use this", key=f"use_{stem}_{label}"):
+                                imgs_dir.mkdir(parents=True, exist_ok=True)
+                                out_path = imgs_dir / f"{stem}_16x9.png"; img.save(out_path)
+                                st.success(f"saved {out_path.name}: now pick it in the thumbnail step")
+
 if step == "video":
     ensure_quote()
     saved = projects.meta(pdir)
     video_path = pdir / "video.mp4"
-    left, right = st.columns([1, 1.5], gap="large")
+    left, right = st.columns([1.35, 1], gap="large")
 
     # ---- the text generator: drawn under the form, but its values are needed first
     with right:
@@ -978,35 +1073,36 @@ if step == "video":
             with st.expander("tracklist"):
                 st.code(metadata.tracklist_text(tracks, crossfade) if tracks else "no tracks yet", language=None)
 
-# ---------------- progress rail (left), filled last so it shows fresh status ----------------
-tracks = st.session_state["tracks"]
-n = len(tracks)
-mins = round(metadata.total_length([t["duration"] for t in tracks], crossfade) / 60)
-fixed_n = len(list(imgs_dir.glob("*_16x9.png"))) if imgs_dir.exists() else 0
-cover_done = (pdir / "thumbnail.png").exists()
-yt_done = bool(projects.meta(pdir).get("title")) and (pdir / "upload.txt").exists()
-video_done = (pdir / "video.mp4").exists()
-render_now = projects.render_status(pdir)
-proj_count = len(projects.list_projects(PROJECTS))
+
+# ---------------- menu, tabs and phone navigation: filled last so they show fresh status ----------------
+proj_count = len(projects.project_dirs(PROJECTS))
 _lf = library.scan(settings.library_dir())
 _ldb = library.load_db()
 lib_looked = sum(1 for p in _lf if not library.needs_analysis(_ldb, p))
+keys_set = sum(bool(x) for x in (token, img_token, ai_token))
 job_now = projects.job_status(pdir)
-RAIL = {
-    "projects": (False, f"{proj_count} video{'s' if proj_count != 1 else ''}" if proj_count else "start your first video"),
-    "music": (n > 0 and not job_now["running"], f"generating {job_now['done']}/{job_now['total']}" if job_now["running"]
-              else (f"{n} tracks · {mins} min" if n else "no tracks yet")),
-    "playlist": (n > 0, "titles ready" if n else "after the music"),
-    "library": (bool(_lf) and lib_looked == len(_lf), f"{lib_looked} of {len(_lf)} looked at" if _lf else "choose your folder"),
-    "fix images": (fixed_n > 0, f"{fixed_n} made 16:9" if fixed_n else "optional"),
-    "thumbnail": (cover_done, "saved" if cover_done else ("in progress" if step == "thumbnail" else "not made yet")),
-    "video": (video_done and yt_done, "ready to upload" if (video_done and yt_done) else
-              (f"making it {int(render_now['progress'] * 100)}%" if render_now["running"] else
-               ("write the text" if video_done else "make the video"))),
-}
-with rail_slot:
-    for i, s in enumerate(STEPS):
-        done, sub = RAIL[s]
-        st.button(f"{'✓' if done else ('•' if i == 0 else i)}   {s}", key=f"step_{s}", width="stretch",
-                  type="primary" if s == step else "secondary", on_click=go, args=(s,))
-        st.markdown(f'<div class="sg-step-sub{" done" if done else ""}">{sub}</div>', unsafe_allow_html=True)
+render_now = projects.render_status(pdir)
+cover_done = (pdir / "thumbnail.png").exists()
+yt_done = bool(projects.meta(pdir).get("title")) and (pdir / "upload.txt").exists()
+video_done = (pdir / "video.mp4").exists()
+n_tracks_now = len(projects.audio_files(tracks_dir))
+MENU_SUB = {"projects": f"{proj_count} video{'s' if proj_count != 1 else ''}" if proj_count else "start your first video",
+            "library": f"{lib_looked} of {len(_lf)} looked at" if _lf else "choose your folder",
+            "settings": f"{keys_set} of 3 keys set"}
+with menu_slot:
+    for sid, label in MENU:
+        active = step == sid or (sid == "projects" and step in VIDEO_STEPS)
+        st.button(label, key=f"menu_{sid}", type="primary" if active else "secondary", width="stretch", on_click=go, args=(sid,))
+        st.markdown(f'<div class="sg-step-sub">{MENU_SUB[sid]}</div>', unsafe_allow_html=True)
+with topnav_slot:                                                                           # visible on phones only (CSS)
+    for col, (sid, label) in zip(st.columns(3), MENU):
+        col.button(label, key=f"topnav_{sid}", type="primary" if (step == sid or (sid == "projects" and step in VIDEO_STEPS)) else "secondary",
+                   width="stretch", on_click=go, args=(sid,))
+if tabs_slot is not None:
+    done_map = {"music": n_tracks_now > 0 and not job_now["running"], "thumbnail": cover_done, "video": video_done and yt_done}
+    extra = {"music": f" · {job_now['done']}/{job_now['total']}" if job_now["running"] else "",
+             "video": f" · {int(render_now['progress'] * 100)}%" if render_now["running"] else ""}
+    with tabs_slot:
+        for col, (sid, label) in zip(st.columns([1, 1, 1, 2.2]), TABS):
+            col.button(f"{'✓ ' if done_map[sid] else ''}{label}{extra.get(sid, '')}", key=f"tab_{sid}",
+                       type="primary" if step == sid else "secondary", width="stretch", on_click=go, args=(sid,))

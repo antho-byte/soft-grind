@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["NO_PROXY"] = "127.0.0.1"; os.environ["no_proxy"] = "127.0.0.1"
 import pytest
-from soft_grind import ai, imagegen, net, playlist, suno
+from soft_grind import ai, imagegen, net, suno
 from PIL import Image
 
 DEAD = "http://127.0.0.1:9"      # nothing listens here = internet down
