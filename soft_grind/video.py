@@ -86,12 +86,7 @@ def measure_loudness(inputs: list[Path], graph: str, total: float, on_progress=N
 GRAIN = {0: 0, 1: 7, 2: 14}                      # strength of the luma noise: off / low / medium
 TINTS = {"none": "", "warm": "colorbalance=rs=.04:gs=.01:bs=-.04:rm=.03:bm=-.03,eq=saturation=1.05",
          "faded": "curves=all='0/0.05 1/0.95',eq=contrast=0.94:saturation=0.88"}
-LOOK_DEFAULT = {"grain": 0, "vignette": False, "flicker": False, "dust": True, "scratches": True, "tint": "none", "fps": 15}
-PRESETS = {
-    "light film": {"grain": 0, "vignette": False, "flicker": False, "dust": True, "scratches": True, "tint": "none", "fps": 15},
-    "light film, faded": {"grain": 0, "vignette": False, "flicker": False, "dust": True, "scratches": True, "tint": "faded", "fps": 15},
-    "soft film (with grain)": {"grain": 1, "vignette": True, "flicker": True, "dust": True, "scratches": True, "tint": "warm", "fps": 15},
-}
+LOOK_DEFAULT = {"grain": 0, "vignette": False, "flicker": False, "dust": True, "scratches": False, "tint": "none", "fps": 12}
 
 
 def normalize_look(look: dict | None) -> dict | None:

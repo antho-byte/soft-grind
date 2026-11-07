@@ -186,7 +186,7 @@ def test_youtube_card_and_upload_button_appear_only_when_they_can_work():
     assert not [b for b in at.button if b.label == "upload to youtube"][0].disabled
 
 
-def test_film_look_controls_save_per_video_and_can_be_switched_off():
+def test_film_dust_switch_saves_per_video_and_can_be_switched_off():
     settings, projects = home()
     p = settings.projects_dir() / "mix-001"; (p / "tracks").mkdir(parents=True)
     Image.new("RGB", (1920, 1080), (60, 60, 160)).save(p / "still.png")
@@ -194,8 +194,7 @@ def test_film_look_controls_save_per_video_and_can_be_switched_off():
     tog = [t for t in at.toggle if t.key == "look_on_mix-001"][0]
     assert tog.value is False
     tog.set_value(True); at.run(); assert not at.exception, at.exception
-    lk = projects.film_look(p); assert lk and lk["dust"] and lk["scratches"] and lk["grain"] == 0     # the light default: no grain
-    [s for s in at.select_slider if s.key == "look_grain_mix-001_0"][0].set_value(2); at.run(); assert not at.exception
-    assert projects.film_look(p)["grain"] == 2
+    lk = projects.film_look(p); assert lk and lk["dust"] and lk["fps"] == 12 and not lk["grain"] and not lk["scratches"]
+    assert [b for b in at.button if b.label == "20-second test"]
     [t for t in at.toggle if t.key == "look_on_mix-001"][0].set_value(False); at.run(); assert not at.exception
     assert projects.film_look(p) is None

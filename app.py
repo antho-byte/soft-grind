@@ -193,53 +193,31 @@ def render_panel(pdir_):
 
 
 def film_look_ui(pdir_, vname):
-    """Light film effects like an old print. Off = the fast plain picture. Try them on a 20-second test before the long render."""
+    """Film dust: a few faint specks, like an old print. Off = the fast plain picture. Try it on a 20-second test first."""
     cur = projects.film_look(pdir_) or {}
-    base = {**video.LOOK_DEFAULT, **cur}
-    ver = st.session_state.get(f"_look_ver_{vname}", 0)                      # bumped by the preset buttons, so the controls reload
-    k = lambda s_: f"look_{s_}_{vname}_{ver}"
-    on = st.toggle("use a film look", value=bool(cur), key=f"look_on_{vname}")
+    on = st.toggle("film dust (faint specks)", value=bool(cur), key=f"look_on_{vname}")
+    if on and not cur:
+        projects.set_meta(pdir_, film_look=dict(video.LOOK_DEFAULT))
+        st.rerun()
     if not on:
-        if cur and st.session_state.get(f"_look_saved_{vname}") != "off":
+        if cur:
             projects.set_meta(pdir_, film_look={})
-            st.session_state[f"_look_saved_{vname}"] = "off"
             st.rerun()
         st.caption("Off: a still picture, quickest to make and a small file.")
         return
-    st.session_state.pop(f"_look_saved_{vname}", None)
-    st.caption("presets")
-    pcols = st.columns(len(video.PRESETS))
-    for col, (pname, pvals) in zip(pcols, video.PRESETS.items()):
-        if col.button(pname, key=f"look_preset_{pname}_{vname}", width="stretch"):
-            projects.set_meta(pdir_, film_look=dict(pvals))
-            st.session_state[f"_look_ver_{vname}"] = ver + 1
-            st.rerun()
-    c1, c2 = st.columns(2)
-    dust = c1.checkbox("dust specks", value=base["dust"], key=k("dust"))
-    scr = c2.checkbox("thin film scratches", value=base["scratches"], key=k("scr"))
-    tint = c1.selectbox("colour", ["none", "warm", "faded"], index=["none", "warm", "faded"].index(base["tint"]), key=k("tint"))
-    grain = c2.select_slider("grain", options=[0, 1, 2], value=base["grain"], format_func=lambda v: ["none", "low", "medium"][v], key=k("grain"))
-    vig = c1.checkbox("vignette (darker corners)", value=base["vignette"], key=k("vig"))
-    flick = c2.checkbox("gentle flicker", value=base["flicker"], key=k("flick"))
-    fps = st.select_slider("frames per second", options=[12, 15, 24], value=base["fps"] if base["fps"] in (12, 15, 24) else 15,
-                           key=k("fps"), help="12 to 15 looks most like film, and is quicker and smaller.")
-    new = {"grain": grain, "vignette": vig, "flicker": flick, "dust": dust, "scratches": scr, "tint": tint, "fps": fps}
-    if new != {k_: base[k_] for k_ in new} or not cur:
-        projects.set_meta(pdir_, film_look=new)
-    st.caption("Applies the next time you press make the video. The light film preset adds almost nothing to the file size and takes "
-               "roughly half an hour per hour of video; grain makes files bigger (up to about 1.6 GB per hour).")
+    st.caption("Applies the next time you press make the video. It takes roughly half an hour per hour of video and adds almost nothing to the file size.")
     if st.button("20-second test", key=f"look_test_{vname}", disabled=not (pdir_ / "still.png").exists(),
                  help=None if (pdir_ / "still.png").exists() else "Make the cover first."):
         try:
             with st.spinner("making the test…"):
-                video.look_preview(pdir_ / "still.png", pdir_ / "look_test.mp4", new)
+                video.look_preview(pdir_ / "still.png", pdir_ / "look_test.mp4", cur)
             st.session_state[f"_look_test_{vname}"] = True
         except video.VideoError as e:
             show_error(str(e))
     if st.session_state.get(f"_look_test_{vname}") and (pdir_ / "look_test.mp4").exists():
         st.video(str(pdir_ / "look_test.mp4"), loop=True, autoplay=True, muted=True)
-    if st.button("use this look for all new videos", key=f"look_default_{vname}", type="tertiary"):
-        settings._write_settings(film_look_default=new)
+    if st.button("use this for all new videos", key=f"look_default_{vname}", type="tertiary"):
+        settings._write_settings(film_look_default=dict(cur))
         st.toast("saved as your default")
 
 
@@ -1264,7 +1242,7 @@ if step == "video":
                 f_in = st.number_input("fade in (s)", 0.0, 10.0, 3.0, 0.5)
                 f_out = st.number_input("fade out (s)", 0.0, 20.0, 6.0, 0.5)
                 st.caption(f"Crossfade {crossfade:g}s (set under keys and settings) · loudness −14 LUFS.")
-            with st.expander("film look (grain, vignette…)"):
+            with st.expander("film dust"):
                 film_look_ui(pdir, name)
             if not rs["running"]:
                 if st.button("make the video again" if video_path.exists() else "make the video", type="secondary" if video_path.exists() else "primary",

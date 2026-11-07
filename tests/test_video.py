@@ -96,7 +96,7 @@ def test_light_film_adds_no_colour_cast_and_no_lift(tmp_path, monkeypatch):
     from soft_grind import settings
     monkeypatch.setattr(settings, "DATA_DIR", tmp_path / "data")
     still = tmp_path / "s.png"; Image.new("RGB", (1920, 1080), (200, 120, 90)).save(still)
-    clip = video.look_preview(still, tmp_path / "c.mp4", video.PRESETS["light film"], 2)
+    clip = video.look_preview(still, tmp_path / "c.mp4", {**video.LOOK_DEFAULT, "scratches": True, "fps": 15}, 2)
     subprocess.run([video.ffmpeg_exe(), "-v", "error", "-y", "-i", str(clip), "-frames:v", "1", str(tmp_path / "f.png")], check=True)
     a = np.asarray(Image.open(still).convert("RGB")).astype(int); b = np.asarray(Image.open(tmp_path / "f.png").convert("RGB")).astype(int)
     assert np.abs((b - a).mean(axis=(0, 1))).max() < 3          # the overlays must not change the picture's colour or brightness
