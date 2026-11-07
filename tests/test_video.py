@@ -118,3 +118,20 @@ def test_dust_is_random_not_a_pattern(tmp_path, monkeypatch):
     assert (marks[10] & marks[11]).sum() <= 0.1 * marks[10].sum()                  # not the same places in the next frame
     rows = np.sum(marks, axis=0).sum(axis=1)                                       # marks per picture row: no single row dominates
     assert rows.max() < 0.08 * rows.sum()
+
+
+def test_render_queue_makes_each_video_in_turn(monkeypatch, tmp_path):
+    from soft_grind import settings, projects, queue
+    monkeypatch.setattr(settings, "DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr(projects, "_spawn", lambda *a, **k: None)
+    ps = []
+    for n in ("a", "b", "c"):
+        d, tracks = _setup(n=2, secs=3)
+        p = tmp_path / n; p.mkdir(); (p / "tracks").mkdir()
+        for t in tracks: (p / "tracks" / t.name).write_bytes(t.read_bytes())
+        ps.append(p)
+        if n != "c": (p / "still.png").write_bytes((d / "still.png").read_bytes())     # c has no picture yet: skipped
+    assert projects.start_queue("render", ps, {"crossfade": 1.0, "fade_in": 0.5, "fade_out": 0.5}) == ["a", "b"]
+    queue.run(str(projects.queue_file("render")))
+    assert (ps[0] / "video.mp4").exists() and (ps[1] / "video.mp4").exists() and not (ps[2] / "video.mp4").exists()
+    assert projects.render_status(ps[1])["state"] == "done"

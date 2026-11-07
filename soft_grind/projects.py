@@ -182,8 +182,14 @@ def stage(info: dict) -> str:
         return "needs attention"
     if info["job"]["running"]:
         return "making music"
+    if info.get("render", {}).get("state") == "queued" or info.get("yt", {}).get("state") == "queued":
+        return "in the queue"
     if info.get("render", {}).get("running"):
         return "making the video"
+    if info.get("yt", {}).get("running"):
+        return "uploading"
+    if info.get("youtube_id"):
+        return "scheduled" if info.get("publishes_later") else "on youtube"
     if info["tracks"] == 0:
         return "new"
     if not info["has_thumbnail"]:
@@ -213,6 +219,8 @@ def list_projects(root: Path) -> list[dict]:
                 "has_thumbnail": (p / "thumbnail.png").exists(), "has_upload": bool(m.get("title")) and (p / "upload.txt").exists(),
                 "has_video": (p / "video.mp4").exists(), "title": m.get("title", ""), "schedule": m.get("schedule", ""),
                 "render": render_status(p), "auto": auto_status(p), "credits": round(spent.get(p.name, 0.0), 2),
+                "yt": youtube_status(p), "youtube_id": m.get("youtube_id", ""), "film": bool(m.get("film_look")),
+                "publishes_later": bool(m.get("youtube_id")) and m.get("schedule", "") > time.strftime("%Y-%m-%d %H:%M"),
                 "job": job_status(p), "updated": max([f.stat().st_mtime for f in p.rglob("*") if f.is_file()] or [p.stat().st_mtime])}
         info["stage"] = stage(info)
         out.append(info)
@@ -297,6 +305,42 @@ def start_youtube(pdir: Path, again: bool = False) -> None:
         raise RuntimeError("Write the YouTube text first (video tab).")
     write_json(pdir / YT, {"state": "queued", "progress": 0.0, "message": "queued", "updated": time.time()})
     _spawn("soft_grind.youtube_worker", pdir, YT)
+
+
+# ---------- queues: many videos, one after another (renders would fight over the CPU, uploads over the connection) ----------
+QUEUES = {"render": RENDER, "upload": YT}
+
+
+def queue_file(kind: str) -> Path:
+    from . import settings as _s
+    return _s.DATA_DIR / f"queue_{kind}.json"
+
+
+def start_queue(kind: str, pdirs: list[Path], spec: dict | None = None) -> list[str]:
+    """Put videos in line for 'render' or 'upload'. Returns the names that were added (busy or unfit ones are skipped)."""
+    added = []
+    for p in map(Path, pdirs):
+        m = meta(p)
+        if kind == "upload" and (m.get("youtube_id") or not (p / "video.mp4").exists() or not m.get("title")
+                                 or youtube_status(p)["running"]):
+            continue
+        if kind == "render" and (render_status(p)["running"] or not (p / "still.png").exists() or not audio_files(p / "tracks")):
+            continue
+        write_json(p / QUEUES[kind], {"state": "queued", "progress": 0.0, "message": "waiting in line", "updated": time.time(),
+                                      "spec": spec or {}})
+        added.append(str(p))
+    if not added:
+        return []
+    qf = queue_file(kind)
+    qf.parent.mkdir(parents=True, exist_ok=True)
+    with _locked(qf):
+        q = read_json(qf)
+        alive = q.get("state") == "running" and time.time() - q.get("updated", 0) < STALE_AFTER
+        items = (q.get("items", []) if alive else []) + [a for a in added if a not in q.get("items", [])]
+        write_json(qf, {"state": "running" if alive else "queued", "items": items, "updated": time.time() if not alive else q["updated"]})
+    if not alive:
+        _spawn("soft_grind.queue", qf.parent, qf.name, {"SOFTGRIND_QUEUE_KIND": kind})
+    return [Path(a).name for a in added]
 
 
 AUTO = "auto.json"

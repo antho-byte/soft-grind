@@ -138,3 +138,22 @@ def test_start_youtube_preconditions(env):
     with pytest.raises(RuntimeError): projects.start_youtube(p)                          # no video
     (p / "video.mp4").write_bytes(b"v")
     with pytest.raises(RuntimeError): projects.start_youtube(p)                          # no title
+
+
+def test_upload_queue_does_several_videos_one_after_another(env, monkeypatch):
+    from soft_grind import queue
+    youtube.save_client(CLIENT); youtube._write_private(youtube._token_file(), {"refresh_token": "RT-fake"})
+    monkeypatch.setattr(projects, "_spawn", lambda *a, **k: None)                    # run the queue here, not as a process
+    ps = []
+    for n in ("mix-010", "mix-011", "mix-012"):
+        p = env / n; p.mkdir(); (p / "video.mp4").write_bytes(b"v" * 1000)
+        projects.set_meta(p, title=f"{n} title", description="d", tags="lofi", schedule="2999-01-04 15:00")
+        ps.append(p)
+    projects.set_meta(ps[2], youtube_id="old")                                      # already on youtube: skipped, never twice
+    added = projects.start_queue("upload", ps)
+    assert added == ["mix-010", "mix-011"]
+    assert projects.youtube_status(ps[0])["state"] == "queued" and {i["name"]: i["stage"] for i in projects.list_projects(env)}["mix-010"] == "in the queue"
+    queue.run(str(projects.queue_file("upload")))
+    assert all(projects.meta(p)["youtube_id"] == "vid123" for p in ps[:2]) and projects.meta(ps[2])["youtube_id"] == "old"
+    assert projects.read_json(projects.queue_file("upload"))["state"] == "done"
+    assert {i["name"]: i["stage"] for i in projects.list_projects(env)}["mix-010"] == "scheduled"

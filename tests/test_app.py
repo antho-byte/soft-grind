@@ -122,7 +122,7 @@ def test_delete_goes_to_the_trash_and_can_be_restored():
     at = open_app(); click(at, label="step by step"); name = at.session_state["project"]
     (settings.projects_dir() / name / "tracks").mkdir(parents=True, exist_ok=True); (settings.projects_dir() / name / "tracks" / "01 - a.mp3").write_bytes(b"0")
     click(at, "menu_projects", sidebar=True)
-    click(at, f"del_{name}"); assert any("trash" in w.value for w in at.warning)          # asks first
+    click(at, f"del_{name}"); assert [b for b in at.button if b.key == f"delyes_{name}"]   # asks first
     click(at, f"delyes_{name}"); assert not projects.list_projects(settings.projects_dir()) and len(projects.list_trash(settings.projects_dir())) == 1
     restore = [b for b in at.button if b.key and b.key.startswith("restore_")][0]; restore.click(); at.run()
     assert [p["name"] for p in projects.list_projects(settings.projects_dir())] == [name]
@@ -176,14 +176,14 @@ def test_youtube_card_and_upload_button_appear_only_when_they_can_work():
     p = settings.projects_dir() / "mix-001"; (p / "tracks").mkdir(parents=True)
     (p / "video.mp4").write_bytes(b"v")
     at = open_app("video", "mix-001")
-    assert not [b for b in at.button if b.label == "upload to youtube"]
+    assert not [b for b in at.button if b.label == "upload to YouTube"]
     youtube._write_private(youtube._token_file(), {"refresh_token": "RT-fake"})
     at = open_app("video", "mix-001")
-    btn = [b for b in at.button if b.label == "upload to youtube"]
+    btn = [b for b in at.button if b.label == "upload to YouTube"]
     assert btn and btn[0].disabled
     projects.set_meta(p, title="night shift.", description="d", tags="lofi")
     at = open_app("video", "mix-001")
-    assert not [b for b in at.button if b.label == "upload to youtube"][0].disabled
+    assert not [b for b in at.button if b.label == "upload to YouTube"][0].disabled
 
 
 def test_film_dust_switch_saves_per_video_and_can_be_switched_off():
@@ -198,3 +198,30 @@ def test_film_dust_switch_saves_per_video_and_can_be_switched_off():
     assert [b for b in at.button if b.label == "20-second test"]
     [t for t in at.toggle if t.key == "look_on_mix-001"][0].set_value(False); at.run(); assert not at.exception
     assert projects.film_look(p) is None
+
+
+def test_videos_page_next_step_buttons_and_bulk_actions(monkeypatch):
+    settings, projects = home()
+    from soft_grind import youtube
+    importlib.reload(youtube)
+    spawned = []
+    monkeypatch.setattr(projects, "_spawn", lambda module, workdir, jobfile, env=None: spawned.append((module, jobfile)))
+    from soft_grind.suno import _write_tone
+    root = settings.projects_dir()
+    for n in ("mix-001", "mix-002", "mix-003"):                                     # three videos with music and a cover, no video yet
+        p = root / n; (p / "tracks").mkdir(parents=True)
+        _write_tone(p / "tracks" / "01 - a.wav", 2, 220)
+        Image.new("RGB", (1920, 1080), (60, 60, 160)).save(p / "still.png"); Image.new("RGB", (1280, 720)).save(p / "thumbnail.png")
+        projects.set_meta(p, quote=f"{n}.")
+    at = open_app()
+    labels = {b.key: b.label for b in at.button if b.key and b.key.startswith("next_")}
+    assert labels == {f"next_mix-00{i}": "make the video" for i in (1, 2, 3)}       # each card shows its one next step
+    [c for c in at.checkbox if c.key == "sel_mix-001"][0].check(); at.run()
+    [c for c in at.checkbox if c.key == "sel_mix-002"][0].check(); at.run(); assert not at.exception
+    mk = [b for b in at.button if b.key == "bulk_mk"][0]; assert mk.label == "make 2 videos"
+    up = [b for b in at.button if b.key == "bulk_up"][0]; assert up.disabled            # nothing ready to upload yet
+    mk.click(); at.run(); assert not at.exception
+    assert spawned == [("soft_grind.queue", "queue_render.json")]                      # one queue for both, made one after another
+    q = projects.read_json(projects.queue_file("render"))
+    assert sorted(Path(i).name for i in q["items"]) == ["mix-001", "mix-002"]
+    assert projects.render_status(root / "mix-001")["state"] == "queued" and projects.render_status(root / "mix-003")["state"] == "none"

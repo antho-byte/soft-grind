@@ -264,7 +264,7 @@ def yt_panel(pdir_):
         when = m.get("schedule", "")
         st.caption("Uploads as private" + (f" and publishes by itself on {when} (Amsterdam)." if youtube.publish_at(when) else
                    ": the scheduled time is in the past, so you publish it yourself in YouTube Studio."))
-        if st.button("upload to youtube", type="primary", width="stretch", disabled=not m.get("title"),
+        if st.button("upload to YouTube", type="primary", width="stretch", disabled=not m.get("title"),
                      help=None if m.get("title") else "Write the YouTube text first."):
             try:
                 projects.start_youtube(pdir_)
@@ -491,12 +491,12 @@ if step == "settings":
         st.download_button("download diagnostics.txt", diag, "diagnostics.txt")
 
 if step == "projects":
-    t1, t2 = st.columns([3, 1])
-    with t2.popover("new video", width="stretch"):
-        st.button("step by step", on_click=new_video, width="stretch", type="primary")
-        st.caption("you choose the music, the image and the words yourself, one tab at a time")
-        st.button("automatic: the whole video", on_click=lambda: st.session_state.update(_auto_open=True), width="stretch")
-        st.caption("one button: music, image, headline, cover, video and text")
+    def new_video_menu(where):
+        with where.popover("＋ new video", width="stretch", type="primary"):
+            st.button("step by step", on_click=new_video, width="stretch", type="primary")
+            st.caption("you choose the music, the image and the words yourself, one tab at a time")
+            st.button("automatic: the whole video", on_click=lambda: st.session_state.update(_auto_open=True), width="stretch")
+            st.caption("one button: music, image, headline, cover, video and text")
 
     def auto_form():
         st.markdown("**make a whole video automatically**")
@@ -536,7 +536,6 @@ if step == "projects":
             st.rerun()
 
     disk = health.check_disk(PROJECTS)
-    st.caption(f"credits used this month ≈ {projects.credits_this_month():.1f} (songs and images are estimates, AI text is exact) · {disk['detail']}")
     if disk["status"] != "ok":
         st.warning(f"Disk space: {disk['detail']}. Archive or delete finished videos below.")
     todo = [("Suno key", bool(token)), ("image key", bool(img_token)), ("AI helper key", bool(ai_token)),
@@ -564,106 +563,177 @@ if step == "projects":
                 rep = fixes.make_unique(PROJECTS)
                 st.toast("updated: " + ", ".join(f"{r['name']} → {r['new']}" for r in rep))
                 st.rerun()
-    PILL = {"making music": "#E7E5FF", "new": "#EFEFEF", "needs a thumbnail": "#FFF0D9", "needs the video": "#FFF0D9",
-            "making the video": "#E7E5FF", "needs youtube text": "#FFE4EE", "ready": "#DDF1E6",
-            "making it": "#E7E5FF", "needs attention": "#FFD9D2"}
+    PILL = {"new": ("#EFEFF4", "#4A4D78"), "making music": ("#E7E5FF", "#3A3790"), "making it": ("#E7E5FF", "#3A3790"),
+            "making the video": ("#E7E5FF", "#3A3790"), "in the queue": ("#E7E5FF", "#3A3790"), "uploading": ("#E7E5FF", "#3A3790"),
+            "needs a thumbnail": ("#FFF0D9", "#7A5420"), "needs the video": ("#FFF0D9", "#7A5420"),
+            "needs youtube text": ("#FFE4EE", "#7A2C4C"), "needs attention": ("#FFD9D2", "#8A2A1A"),
+            "ready": ("#DDF1E6", "#1F5B43"), "scheduled": ("#1E2050", "#FFFFFF"), "on youtube": ("#1E2050", "#FFFFFF")}
+    GROUPS = {"all": None, "to finish": ("new", "needs a thumbnail", "needs the video", "needs youtube text", "needs attention"),
+              "ready": ("ready",), "on youtube": ("scheduled", "on youtube"),
+              "busy": ("making music", "making the video", "making it", "uploading", "in the queue")}
+    all_items = projects.list_projects(PROJECTS)
+    counts = {g: sum(1 for i in all_items if stages is None or i["stage"] in stages) for g, stages in GROUPS.items()}
+    fa, fb, fc = st.columns([3.2, 1.6, 1], vertical_alignment="bottom")
+    flt = fa.segmented_control("show", [g for g in GROUPS if g == "all" or counts[g]], key="vid_filter", default="all",
+                               format_func=lambda g: f"{g} {counts[g]}", label_visibility="collapsed", required=True) or "all"
+    query = fb.text_input("search", placeholder="search", key="vid_search", label_visibility="collapsed").strip().lower()
+    new_video_menu(fc)
 
-    GROUPS = {"in progress": ("making music", "making the video", "making it"), "needs attention": ("needs attention",),
-              "to finish": ("new", "needs a thumbnail", "needs the video", "needs youtube text"), "ready": ("ready",)}
-    flt, query = "all", ""
-    if len(proj_list) > 3:
-        fa, fb = st.columns([1, 2])
-        flt = fa.selectbox("show", ["all"] + list(GROUPS), key="vid_filter")
-        query = fb.text_input("search", placeholder="search by name or headline", key="vid_search").strip().lower()
+    def next_step(info):
+        """The one thing to do next for this video: (label, kind, target). kind = open | render | upload | link | none."""
+        stg = info["stage"]
+        if stg == "new": return ("make the music", "open", "music")
+        if stg == "needs a thumbnail": return ("make the cover", "open", "thumbnail")
+        if stg == "needs the video": return ("make the video", "render", None)
+        if stg == "needs youtube text": return ("write the text", "open", "video")
+        if stg == "ready":
+            return ("upload to YouTube", "upload", None) if youtube.connected() else ("check and upload", "open", "video")
+        if stg in ("scheduled", "on youtube"): return ("open in YouTube Studio", "link", youtube.studio_url(info["youtube_id"]))
+        if stg == "needs attention": return ("see what is missing", "open", "library")
+        return ("", "none", None)
+
+    def run_queue(kind, infos):
+        spec = {"crossfade": crossfade, "fade_in": 3.0, "fade_out": 6.0} if kind == "render" else None
+        added = projects.start_queue(kind, [i["path"] for i in infos], spec)
+        st.toast((("making " if kind == "render" else "uploading ") + ", ".join(added)) if added else "nothing to do for these")
 
     def grid():
         items = projects.list_projects(PROJECTS)
         if not items:
             st.info("No videos yet. Press **new video** to start the first one.")
             return
-        items = [i for i in items if (flt == "all" or i["stage"] in GROUPS[flt])
+        stages = GROUPS.get(flt)
+        items = [i for i in items if (stages is None or i["stage"] in stages)
                  and (not query or query in (i["name"] + " " + i["quote"] + " " + i["title"]).lower())]
         if not items:
             st.info("No video matches this filter.")
             return
+        sel = [i for i in items if st.session_state.get(f"sel_{i['name']}")]
+        with st.container(key="bulkbar"):
+            if not sel:
+                b0, b1 = st.columns([5, 1], vertical_alignment="center")
+                b0.caption(f"{len(items)} video{'s' if len(items) != 1 else ''} · tick a name to select it for bulk actions")
+                if b1.button("select all", type="tertiary", key="sel_all", width="stretch"):
+                    for i in items: st.session_state[f"sel_{i['name']}"] = True
+                    st.rerun()
+            else:
+                up = [i for i in sel if i["stage"] == "ready"]
+                mk = [i for i in sel if i["stage"] == "needs the video"]
+                c0, c1, c2, c3, c4 = st.columns([1.3, 1.6, 1.4, 1.3, 0.8], vertical_alignment="center")
+                c0.markdown(f"**{len(sel)} selected**")
+                if c1.button(f"upload {len(up)} to YouTube", type="primary", disabled=not up or not youtube.connected(), width="stretch",
+                             help=None if youtube.connected() else "Connect YouTube in settings first.", key="bulk_up"):
+                    run_queue("upload", up); st.rerun()
+                if c2.button(f"make {len(mk)} video{'s' if len(mk) != 1 else ''}", disabled=not mk, width="stretch", key="bulk_mk",
+                             help="Made one after another, so the computer stays usable."):
+                    run_queue("render", mk); st.rerun()
+                with c3.popover("more", width="stretch"):
+                    if st.button("film dust on", width="stretch", key="bulk_dust_on"):
+                        for i in sel: projects.set_meta(i["path"], film_look=dict(video.LOOK_DEFAULT))
+                        st.toast("film dust on: used the next time each video is made"); st.rerun()
+                    if st.button("film dust off", width="stretch", key="bulk_dust_off"):
+                        for i in sel: projects.set_meta(i["path"], film_look={})
+                        st.rerun()
+                    if st.button(f"move {len(sel)} to the trash", width="stretch", key="bulk_trash"):
+                        st.session_state["_bulk_trash"] = True
+                    if st.session_state.get("_bulk_trash"):
+                        st.warning("Move them to the trash? You can restore them from the trash below.")
+                        if st.button("yes, move them", type="primary", key="bulk_trash_yes"):
+                            done, busy = [], []
+                            for i in sel:
+                                try:
+                                    projects.trash_project(i["path"]); done.append(i["name"])
+                                except RuntimeError:
+                                    busy.append(i["name"])
+                                st.session_state.pop(f"sel_{i['name']}", None)
+                            st.session_state.pop("_bulk_trash", None)
+                            st.toast(f"moved {len(done)} to the trash" + (f" · still busy: {', '.join(busy)}" if busy else ""))
+                            st.rerun()
+                if c4.button("clear", type="tertiary", width="stretch", key="sel_clear"):
+                    for i in items: st.session_state.pop(f"sel_{i['name']}", None)
+                    st.session_state.pop("_bulk_trash", None)
+                    st.rerun()
         rows = [st.columns(3) for _ in range((len(items) + 2) // 3)]                 # one row at a time, so cards line up
         for i, info in enumerate(items):
-            with rows[i // 3][i % 3], st.container(key=f"card_proj_{info['name']}"):
+            nm = info["name"]
+            with rows[i // 3][i % 3], st.container(key=f"card_proj_{nm}"):
                 if info["cover"]:
                     theme.show_image(info["cover"], width="stretch")
                 else:
                     st.markdown('<div class="sg-cover-empty">no cover yet</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="sg-proj-name">{html.escape(info["name"])}</div>', unsafe_allow_html=True)
+                h1, h2 = st.columns([4, 1], vertical_alignment="center")
+                h1.checkbox(nm, key=f"sel_{nm}")
+                with h2.popover("⋯", width="stretch"):
+                    if st.button("open", key=f"open_{nm}", width="stretch"):
+                        open_project(nm, info["stage"]); st.rerun()
+                    if info["has_video"] and (info["path"] / "tracks").is_dir() and not projects.is_busy(info["path"]):
+                        if st.button("free up space", key=f"free_{nm}", width="stretch",
+                                     help="Deletes the songs and working images of this finished video. The video, thumbnail and upload text stay."):
+                            try:
+                                st.toast(f"freed {projects.free_space(info['path']):.0f} MB from {nm}."); st.rerun()
+                            except RuntimeError as e:
+                                st.error(str(e))
+                    if st.button("move to the trash", key=f"del_{nm}", width="stretch"):
+                        st.session_state["_confirm_delete"] = nm
+                    if st.session_state.get("_confirm_delete") == nm:
+                        st.caption("Its songs, cover and video go with it. You can restore it from the trash.")
+                        if st.button("yes, move it", key=f"delyes_{nm}", type="primary", width="stretch"):
+                            try:
+                                projects.trash_project(info["path"])
+                                st.session_state.pop("_confirm_delete", None)
+                                if st.session_state.get("project") == nm:
+                                    st.session_state.update(project=projects.next_project_name(PROJECTS), tracks=[], fix_results={})
+                                st.rerun()
+                            except RuntimeError as e:
+                                st.error(str(e))
                 if info["quote"]:
                     st.markdown(f'<div class="sg-proj-quote">{html.escape(info["quote"])}</div>', unsafe_allow_html=True)
-                st.markdown(f'<span class="sg-pill" style="background:{PILL.get(info["stage"], "#EFEFEF")}">{info["stage"]}</span> '
-                            f'<span class="sg-proj-meta">{info["tracks"]} tracks · {round(info["seconds"] / 60)} min'
-                            + (f' · ≈ {info["credits"]:.1f} credits' if info.get("credits") else "") + '</span>',
-                            unsafe_allow_html=True)
+                bg, fg = PILL.get(info["stage"], ("#EFEFF4", "#4A4D78"))
+                meta_bits = [f'{info["tracks"]} tracks · {round(info["seconds"] / 60)} min']
                 if info["schedule"]:
-                    st.markdown(f'<span class="sg-proj-meta">publishes {html.escape(info["schedule"])}</span>', unsafe_allow_html=True)
+                    meta_bits.append(("publishes " if info["stage"] != "on youtube" else "published ") + info["schedule"][5:].replace("-", "/"))
+                if info["film"]:
+                    meta_bits.append("film dust")
+                st.markdown(f'<span class="sg-pill" style="background:{bg};color:{fg}">{info["stage"]}</span> '
+                            f'<span class="sg-proj-meta">{html.escape(" · ".join(meta_bits))}</span>', unsafe_allow_html=True)
                 if info["job"]["running"]:
                     st.progress(info["job"]["progress"], text=f"{info['job']['done']} of {info['job']['total']} requests")
                 if info["render"]["running"]:
-                    st.progress(info["render"]["progress"], text="making the video")
+                    st.progress(info["render"]["progress"], text=info["render"]["message"] or "making the video")
+                if info["yt"]["running"]:
+                    st.progress(info["yt"]["progress"], text=info["yt"]["message"] or "uploading")
+                if info["yt"]["state"] == "failed":
+                    show_error(info["yt"]["error"], "warning", prefix="Upload stopped. ")
                 au = info["auto"]
                 if au["running"]:
                     st.progress(au["progress"], text=f"step {au['step'] + 1} of {len(projects.AUTO_STEPS)} · {au['step_name']}")
-                    st.caption(au["message"])
-                    st.button("cancel", key=f"cancel_auto_{info['name']}", on_click=projects.cancel_job, args=(info["path"],))
+                    st.button("cancel", key=f"cancel_auto_{nm}", on_click=projects.cancel_job, args=(info["path"],), type="tertiary")
                 elif au["state"] in ("needs_attention", "failed", "interrupted"):
                     if au["error"] and au["state"] == "needs_attention":
                         st.warning(au["error"])
                     else:
                         show_error(au["error"] or "The job stopped unexpectedly (the window was closed or the computer went to sleep).", "warning")
-                    if st.button("continue", key=f"resume_auto_{info['name']}"):
+                    if st.button("continue", key=f"resume_auto_{nm}", width="stretch"):
                         try:
                             projects.start_auto(info["path"], projects.read_json(info["path"] / projects.AUTO)["spec"], token, ai_token)
                             st.rerun()
                         except RuntimeError as e:
                             st.error(str(e))
-                if info["has_video"] and (info["path"] / "tracks").is_dir() and not info["render"]["running"] and not au["running"]:
-                    if st.button("free up space", key=f"free_{info['name']}", type="tertiary", width="stretch",
-                                 help="Deletes the songs and working images of this finished video. The video, thumbnail and upload text stay."):
-                        st.session_state["_confirm_free"] = info["name"]
-                    if st.session_state.get("_confirm_free") == info["name"]:
-                        st.warning("Delete the songs and working images of this video? The finished video stays, but you can no longer remake it from the songs.")
-                        f1, f2 = st.columns(2)
-                        if f1.button("yes, free it", key=f"freeyes_{info['name']}", type="primary", width="stretch"):
-                            try:
-                                mb = projects.free_space(info["path"])
-                                st.session_state.pop("_confirm_free", None)
-                                st.toast(f"freed {mb:.0f} MB from {info['name']}.")
-                                st.rerun()
-                            except RuntimeError as e:
-                                st.error(str(e))
-                        if f2.button("keep them", key=f"freeno_{info['name']}", width="stretch"):
-                            st.session_state.pop("_confirm_free", None)
-                            st.rerun()
-                o1, o2 = st.columns(2)
-                if o1.button("open", key=f"open_{info['name']}", width="stretch"):
-                    open_project(info["name"], info["stage"])
-                    st.rerun()                                           # full rerun, so the page switches
-                if o2.button("delete", key=f"del_{info['name']}", type="tertiary", width="stretch"):
-                    st.session_state["_confirm_delete"] = info["name"]
-                if st.session_state.get("_confirm_delete") == info["name"]:
-                    st.warning(f"Move {info['name']} to the trash? Its songs, thumbnail and video go with it. You can restore it from the trash below.")
-                    k1, k2 = st.columns(2)
-                    if k1.button("yes, delete", key=f"delyes_{info['name']}", type="primary", width="stretch"):
-                        try:
-                            projects.trash_project(info["path"])
-                            st.session_state.pop("_confirm_delete", None)
-                            if st.session_state.get("project") == info["name"]:
-                                st.session_state.update(project=projects.next_project_name(PROJECTS), tracks=[], fix_results={})
-                            st.rerun()
-                        except RuntimeError as e:
-                            st.error(str(e))
-                    if k2.button("keep it", key=f"delno_{info['name']}", width="stretch"):
-                        st.session_state.pop("_confirm_delete", None)
+                label, kind, target = next_step(info)
+                if kind == "link":
+                    st.link_button(label, target, width="stretch")
+                elif kind != "none" and not au["running"]:
+                    if st.button(label, key=f"next_{nm}", type="primary" if kind in ("render", "upload") else "secondary", width="stretch"):
+                        if kind == "open":
+                            st.session_state.update(project=nm, tracks=[], fix_results={}, step=target)
+                            st.session_state.pop("_job_was_running", None)
+                        else:
+                            run_queue(kind, [info])
                         st.rerun()
 
-    running_any = any(p["job"]["running"] or p["render"]["running"] or p["auto"]["running"] for p in projects.list_projects(PROJECTS))
-    st.fragment(run_every=5 if running_any else None)(grid)()
+    running_any = any(p["job"]["running"] or p["render"]["running"] or p["auto"]["running"] or p["yt"]["running"] for p in all_items)
+    st.fragment(run_every=4 if running_any else None)(grid)()
+    st.caption(f"credits used this month ≈ {projects.credits_this_month():.1f} · {disk['detail']}")
 
     trashed = projects.list_trash(PROJECTS)
     if trashed:
@@ -882,37 +952,42 @@ if step == "thumbnail":
         an_ = lib_an or {"description": "", "scenes": list(topic_)[:2]}
         set_headline(make_headline(an_, mood_, topic_, use_ai=(req == "ai")) if req == "ai" else
                      headlines.suggest(mood_, [s for s in an_.get("scenes", []) if s in topic_] or list(topic_), used_quotes(name) | {pm_.get("quote", "")}, 1)[0])
-    with st.container(key="card_match"):
-        have = {k: v for k, v in library.load_db().items() if v.get("analysis") and Path(k).exists()}
-        if not have:
-            st.markdown("**pick an image from your library**")
-            st.caption("Nothing looked at yet. Choose your image folder in the **library** step, and this card will suggest images that fit this video.")
-        else:
-            used_ = {k: v for k, v in library.used_images(PROJECTS).items() if v != name}
-            m1, m2, m3 = st.columns([3, 1, 1.3])
-            m1.markdown(f"**pick an image from your library** · {len(have)} images · fits: {', '.join(topic_[:3])} · {mood_}")
-            if m2.button("suggest 3"):
-                st.session_state[f"_sugg_{name}"] = library.suggest(have, topic_, mood_, used_, seed=f"{name}{time.time()}", n=3)
-            if m3.button("use the best match", type="primary"):
-                best = library.suggest(have, topic_, mood_, used_, seed=f"{name}{time.time()}", n=1)
-                if best:
-                    assign_image(best[0]["path"], best[0]["analysis"], mood_, topic_)
-            sugg = st.session_state.get(f"_sugg_{name}") or []
-            if sugg:
-                for col, r in zip(st.columns(3), sugg):
-                    with col:
-                        theme.show_image(library.safe_thumb(Path(r["path"])) or Path(r["path"]).with_name("missing"), width="stretch")
-                        st.caption(r["analysis"].get("description", "") or Path(r["path"]).name)
-                        st.markdown('<span class="sg-proj-meta">' + " · ".join(r["why"]) + "</span>", unsafe_allow_html=True)
-                        if st.button("use this one", key=f"use_lib_{name}_{Path(r['path']).stem}"):
-                            assign_image(r["path"], r["analysis"], mood_, topic_)
-                            st.rerun()
-    with st.container(key="card_source"):
-        c1, c2 = st.columns(2)
-        up = c1.file_uploader("image (16:9, ≥1920px, no text in the image)", type=["png", "jpg", "jpeg", "webp"])
-        fixed = sorted(p.name for p in imgs_dir.glob("*_16x9.png")) if imgs_dir.exists() else []
-        pick = c2.selectbox("…or pick an image you made 16:9 (switch below)", ["—"] + fixed)
+    has_source = bool(st.session_state.get("cover")) or (pdir / "cover_source.png").exists() or (
+        imgs_dir.exists() and any(imgs_dir.glob("*_16x9.png")))
+    src_box = st.expander("change the picture", expanded=False) if has_source else st.container()
+    with src_box:
+        with st.container(key="card_match"):
+            have = {k: v for k, v in library.load_db().items() if v.get("analysis") and Path(k).exists()}
+            if not have:
+                st.markdown("**pick an image from your library**")
+                st.caption("Nothing looked at yet. Choose your image folder in the **library** step, and this card will suggest images that fit this video.")
+            else:
+                used_ = {k: v for k, v in library.used_images(PROJECTS).items() if v != name}
+                m1, m2, m3 = st.columns([3, 1, 1.3])
+                m1.markdown(f"**pick an image from your library** · {len(have)} images · fits: {', '.join(topic_[:3])} · {mood_}")
+                if m2.button("suggest 3"):
+                    st.session_state[f"_sugg_{name}"] = library.suggest(have, topic_, mood_, used_, seed=f"{name}{time.time()}", n=3)
+                if m3.button("use the best match", type="primary"):
+                    best = library.suggest(have, topic_, mood_, used_, seed=f"{name}{time.time()}", n=1)
+                    if best:
+                        assign_image(best[0]["path"], best[0]["analysis"], mood_, topic_)
+                sugg = st.session_state.get(f"_sugg_{name}") or []
+                if sugg:
+                    for col, r in zip(st.columns(3), sugg):
+                        with col:
+                            theme.show_image(library.safe_thumb(Path(r["path"])) or Path(r["path"]).with_name("missing"), width="stretch")
+                            st.caption(r["analysis"].get("description", "") or Path(r["path"]).name)
+                            st.markdown('<span class="sg-proj-meta">' + " · ".join(r["why"]) + "</span>", unsafe_allow_html=True)
+                            if st.button("use this one", key=f"use_lib_{name}_{Path(r['path']).stem}"):
+                                assign_image(r["path"], r["analysis"], mood_, topic_)
+                                st.rerun()
+        with st.container(key="card_source"):
+            c1, c2 = st.columns(2)
+            up = c1.file_uploader("image (16:9, ≥1920px, no text in the image)", type=["png", "jpg", "jpeg", "webp"])
+            fixed = sorted(p.name for p in imgs_dir.glob("*_16x9.png")) if imgs_dir.exists() else []
+            pick = c2.selectbox("…or pick an image you made 16:9 (switch below)", ["—"] + fixed)
     src_img, src_name = None, ""
+    lay_saved = pm_.get("cover_layout") or {}
     if up:
         st.session_state["cover"] = (up.name, up.getvalue())
         src_name, src_img = up.name, Image.open(io.BytesIO(up.getvalue()))
@@ -920,6 +995,11 @@ if step == "thumbnail":
         src_name, src_img = pick, Image.open(imgs_dir / pick)
     elif st.session_state.get("cover"):
         src_name, data = st.session_state["cover"]; src_img = Image.open(io.BytesIO(data))
+    elif (pdir / "cover_source.png").exists():                       # the picture this cover was made from last time
+        src_name, src_img = lay_saved.get("source_name") or "the picture of this cover", Image.open(pdir / "cover_source.png")
+    elif fixed:                                                       # an image prepared for this video (library or photo fixer)
+        newest = max(fixed, key=lambda n: (imgs_dir / n).stat().st_mtime)
+        src_name, src_img = newest, Image.open(imgs_dir / newest)
     if src_img is None:
         st.info("Add an image above, or make a vertical photo 16:9 with the switch below.")
     else:
@@ -942,19 +1022,22 @@ if step == "thumbnail":
                            disabled=not (ai_token and not ai_mock), help="The AI writes a headline for this picture.")
                 subline = sticky(st.text_input, "subline (optional)", "subline", "")
             with c2:
-                cyber = sticky(st.toggle, "night city style", "cyber", False)
-                tag = st.text_input("tag box", "CYBERPUNK SYNTHWAVE", disabled=not cyber)
-                logo = st.selectbox("logo colour", ["auto", "navy", "white"])
+                cyber = sticky(st.toggle, "night city style", "cyber", bool(lay_saved.get("cyber", False)))
+                tag = st.text_input("tag box", lay_saved.get("tag", "CYBERPUNK SYNTHWAVE"), disabled=not cyber, key=f"w_{name}_tag")
+                logo = st.selectbox("logo colour", ["auto", "navy", "white"], ["auto", "navy", "white"].index(lay_saved.get("logo", "auto")),
+                                    key=f"w_{name}_logo")
                 hv = sticky(st.toggle, "headline on the video image", "hv", projects.meta(pdir).get("headline_on_video", True),
                             help="The picture under the music uses the thumbnail design, headline included.")
             with c3:
-                anchor = st.selectbox("position", T.ANCHORS, T.ANCHORS.index("top-center"),
+                anchor = st.selectbox("position", T.ANCHORS, T.ANCHORS.index(lay_saved.get("anchor", "top-center")
+                                                                              if lay_saved.get("anchor") in T.ANCHORS else "top-center"),
+                                      key=f"w_{name}_anchor",
                                       help=f"The house style is top-center. The calmest area of this image is {T.suggest_anchor(src_img, quote)}.")
-                size = sticky(st.slider, "text size", "size", 1.5, min_value=0.5, max_value=1.6, step=0.05,
+                size = sticky(st.slider, "text size", "size", float(lay_saved.get("size", 1.5)), min_value=0.5, max_value=1.6, step=0.05,
                               help="1.50 is the house style. Longer headlines shrink by themselves if they would not fit.")
             with c4:
-                dx = st.slider("nudge x", -300, 300, 0, 5)
-                dy = st.slider("nudge y", -300, 300, 0, 5)
+                dx = st.slider("nudge x", -300, 300, int(lay_saved.get("dx", 0)), 5, key=f"w_{name}_dx")
+                dy = st.slider("nudge y", -300, 300, int(lay_saved.get("dy", 0)), 5, key=f"w_{name}_dy")
         lay_ = T.Layout(anchor, size, dx, dy)
         thumb = T.render_thumbnail(src_img, quote, lay_, cyber, tag, subline, logo_mode=logo)
         still = T.render_still(src_img, cyber, logo_mode=logo, quote=quote if hv else None, layout=lay_, tag=tag, subline=subline)
@@ -966,13 +1049,24 @@ if step == "thumbnail":
             with zipfile.ZipFile(zbuf, "w") as z:
                 for nm, pic in (("thumbnail.png", thumb), ("still.png", still)):
                     pb = io.BytesIO(); pic.save(pb, "PNG"); z.writestr(nm, pb.getvalue())
-            b1, b2, _ = st.columns([1, 1, 2])
-            if b1.button("save to project", type="primary"):
+            sig = "|".join(map(str, (src_name, quote, anchor, size, dx, dy, cyber, logo, hv, subline, tag if cyber else "")))
+            is_saved = (pm_.get("cover_sig") == sig) and (pdir / "thumbnail.png").exists()
+            b1, b2, b3 = st.columns([1.1, 1, 2], vertical_alignment="center")
+            if b1.button("✓ saved" if is_saved else "save the cover", type="secondary" if is_saved else "primary", disabled=is_saved,
+                         width="stretch"):
                 pdir.mkdir(parents=True, exist_ok=True)
                 thumb.save(pdir / "thumbnail.png"); still.save(pdir / "still.png")
-                projects.set_meta(pdir, quote=quote, quote_placeholder=False, headline_on_video=bool(hv))
-                st.success(f"saved thumbnail.png + still.png in {pdir}")
-            b2.download_button("download both", zbuf.getvalue(), "softgrind_cover.zip", "application/zip")
+                if src_name != lay_saved.get("source_name") or not (pdir / "cover_source.png").exists():
+                    src_img.convert("RGB").save(pdir / "cover_source.png")
+                projects.set_meta(pdir, quote=quote, quote_placeholder=False, headline_on_video=bool(hv), cover_sig=sig,
+                                  cover_layout={"source_name": src_name, "anchor": anchor, "size": size, "dx": dx, "dy": dy,
+                                                "cyber": bool(cyber), "logo": logo, "tag": tag})
+                st.rerun()
+            b2.download_button("download both", zbuf.getvalue(), "softgrind_cover.zip", "application/zip", type="tertiary")
+            if not is_saved and (pdir / "thumbnail.png").exists() and pm_.get("cover_sig"):
+                b3.markdown('<span class="sg-unsaved">changes not saved yet: the video still uses the old cover</span>', unsafe_allow_html=True)
+            elif is_saved and (pdir / "video.mp4").exists() and (pdir / "still.png").stat().st_mtime > (pdir / "video.mp4").stat().st_mtime + 1:
+                b3.markdown('<span class="sg-unsaved">saved. Make the video again (video tab) to use the new picture.</span>', unsafe_allow_html=True)
     with st.expander("bulk: many images at once (thumbnails + stills + contact sheet)"):
         bq = st.text_area("quotes, one per line (matched to images in name order; last one repeats)", "you've got this.")
         files = st.file_uploader("images", type=["png", "jpg", "jpeg", "webp"], accept_multiple_files=True, key="bulk")
@@ -1081,6 +1175,7 @@ if step == "video":
 
     # ---- the text generator: drawn under the form, but its values are needed first
     with right:
+        publish_slot = st.container(key="card_publish")
         form_slot = st.container(key="card_form")
         with st.expander("write the text for me (settings)"):
             if len(tracks) < 3:
@@ -1148,7 +1243,7 @@ if step == "video":
         status_slot = st.empty()
         title = st.text_input("Title", init["title"], key=f"w_{name}_title{ver}", max_chars=100)
         st.caption(f"{len(title)}/100 characters · the first 60 matter most")
-        desc = st.text_area("Description", init["description"], height=300, key=f"w_{name}_desc{ver}")
+        desc = st.text_area("Description", init["description"], height=220, key=f"w_{name}_desc{ver}")
         tags = st.text_area("Tags", init["tags"], height=70, key=f"w_{name}_tags{ver}")
         pinned = st.text_input("Pinned comment", init["pinned"], key=f"w_{name}_pin{ver}")
         st.markdown("**Scheduled date**")
@@ -1218,18 +1313,17 @@ if step == "video":
                         video.make_preview(video_path, prev_path)
                     except Exception:
                         prev_path = None
-                if st.session_state.get(f"_full_{name}") or prev_path is None:
-                    st.video(str(video_path))
-                    if prev_path is not None:
-                        st.button("back to the quick preview", on_click=lambda: st.session_state.update({f"_full_{name}": False}))
-                else:
-                    st.video(str(prev_path))
-                    st.caption("quick preview: the first 90 seconds. The page stays fast this way.")
-                    st.button("load the full video", on_click=lambda: st.session_state.update({f"_full_{name}": True}))
+                full = st.session_state.get(f"_full_{name}") or prev_path is None
+                st.video(str(video_path if full else prev_path))
                 mb = video_path.stat().st_size / 1_000_000
-                st.caption(f"{metadata.fmt_ts(metadata.total_length([t['duration'] for t in tracks], crossfade))} · {mb:.0f} MB · 1920×1080")
-                st.download_button("download video", data=lambda: video_path.read_bytes(), file_name=f"{name}.mp4", mime="video/mp4",
-                                   width="stretch")
+                st.caption(f"{metadata.fmt_ts(metadata.total_length([t['duration'] for t in tracks], crossfade))} · {mb:.0f} MB · 1920×1080"
+                           + ("" if full else " · showing the first 90 seconds"))
+                v1, v2 = st.columns(2)
+                if prev_path is not None:
+                    v1.button("quick preview" if full else "play the full video", width="stretch", type="tertiary",
+                              on_click=lambda: st.session_state.update({f"_full_{name}": not full}))
+                v2.download_button("download video", data=lambda: video_path.read_bytes(), file_name=f"{name}.mp4", mime="video/mp4",
+                                   width="stretch", type="tertiary")
             else:
                 if still_ok:
                     theme.show_image(pdir / "still.png", width="stretch")
@@ -1237,7 +1331,8 @@ if step == "video":
                     st.markdown('<div class="sg-cover-empty">no video yet</div>', unsafe_allow_html=True)
                 st.markdown(("✓" if tracks else "✗") + f" tracks ({len(tracks)}) &nbsp; " + ("✓" if still_ok else "✗")
                             + " video picture (cover tab)")
-            st.caption(f"credits used for this video: ≈ {projects.credits_for(name):.1f}")
+            if projects.credits_for(name):
+                st.caption(f"credits used for this video: ≈ {projects.credits_for(name):.1f}")
             with st.expander("video settings"):
                 f_in = st.number_input("fade in (s)", 0.0, 10.0, 3.0, 0.5)
                 f_out = st.number_input("fade out (s)", 0.0, 20.0, 6.0, 0.5)
@@ -1252,14 +1347,21 @@ if step == "video":
                         st.rerun()
                     except RuntimeError as e:
                         st.error(str(e))
-            if video_path.exists() and not rs["running"]:
-                yt_panel(pdir)
             if (pdir / "thumbnail.png").exists():
-                theme.show_image(pdir / "thumbnail.png", caption="thumbnail", width="stretch")
-                st.download_button("download thumbnail", data=lambda: (pdir / "thumbnail.png").read_bytes(),
-                                   file_name=f"{name}-thumbnail.png", mime="image/png", width="stretch")
+                with st.expander("thumbnail"):
+                    theme.show_image(pdir / "thumbnail.png", width="stretch")
+                    st.download_button("download thumbnail", data=lambda: (pdir / "thumbnail.png").read_bytes(),
+                                       file_name=f"{name}-thumbnail.png", mime="image/png", width="stretch", type="tertiary")
             with st.expander("tracklist"):
                 st.code(metadata.tracklist_text(tracks, crossfade) if tracks else "no tracks yet", language=None)
+
+    # ---- publish (right, top): filled last, so it sees the text that was just saved
+    with publish_slot:
+        st.markdown("**publish**")
+        if video_path.exists() and not projects.render_status(pdir)["running"]:
+            yt_panel(pdir)
+        else:
+            st.caption("Make the video first (left). Then it can go to YouTube from here.")
 
 
 # ---------------- menu, tabs and phone navigation: filled last so they show fresh status ----------------
@@ -1291,6 +1393,6 @@ if tabs_slot is not None:
     extra = {"music": f" · {job_now['done']}/{job_now['total']}" if job_now["running"] else "",
              "video": f" · {int(render_now['progress'] * 100)}%" if render_now["running"] else ""}
     with tabs_slot:
-        for col, (sid, label) in zip(st.columns([1, 1, 1, 2.2]), TABS):
+        for col, (sid, label) in zip(st.columns(3), TABS):
             col.button(f"{'✓ ' if done_map[sid] else ''}{label}{extra.get(sid, '')}", key=f"tab_{sid}",
                        type="primary" if step == sid else "secondary", width="stretch", on_click=go, args=(sid,))
