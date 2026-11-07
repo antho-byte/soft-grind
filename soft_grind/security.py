@@ -69,14 +69,15 @@ def locked_for() -> int:
 
 
 def register_failure() -> None:
-    s = projects.read_json(STATE_FILE)
-    now = time.time()
-    if now - s.get("first", 0) > WINDOW:
-        s = {"fails": 0, "first": now}
-    s["fails"] = s.get("fails", 0) + 1
-    if s["fails"] >= MAX_FAILS:
-        s.update(until=now + LOCK_SECONDS, fails=0, first=now)
-    projects.write_json(STATE_FILE, s)
+    with projects._locked(STATE_FILE):                                   # parallel sessions must not lose counts
+        s = projects.read_json(STATE_FILE)
+        now = time.time()
+        if now - s.get("first", 0) > WINDOW:
+            s = {"fails": 0, "first": now}
+        s["fails"] = s.get("fails", 0) + 1
+        if s["fails"] >= MAX_FAILS:
+            s.update(until=now + LOCK_SECONDS, fails=0, first=now)
+        projects.write_json(STATE_FILE, s)
 
 
 def reset_failures() -> None:
@@ -89,11 +90,11 @@ def check_login(pw: str) -> tuple[bool, str]:
     if wait:
         return False, f"Too many wrong tries. Try again in {wait // 60 + 1} minute(s)."
     stored = password_hash()
+    register_failure()                                                  # counted before checking, so parallel guesses cannot slip past the limit
     if stored and verify(pw, stored):
         reset_failures()
         return True, ""
     time.sleep(1.0)
-    register_failure()
     return False, "That is not the password."
 
 

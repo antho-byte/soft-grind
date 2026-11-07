@@ -286,6 +286,8 @@ def start_auto(pdir: Path, spec: dict, suno_token: str = "", ai_token: str = "")
     pdir = Path(pdir); pdir.mkdir(parents=True, exist_ok=True)
     if auto_status(pdir)["running"]:
         raise RuntimeError("This video is already being made.")
+    if meta(pdir).get("freed_tracks"):
+        raise RuntimeError("The songs of this video were deleted to free up space: starting again would buy new music. Make a new video instead.")
     (pdir / CANCEL).unlink(missing_ok=True)
     prev = read_json(pdir / AUTO)                                     # keep the list of paid requests across a resume
     write_json(pdir / AUTO, {"state": "queued", "spec": spec, "step": 0, "progress": 0.0, "message": "queued", "updated": time.time(),
@@ -331,6 +333,9 @@ def free_space(pdir: Path) -> float:
         if d.is_dir():
             freed += sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
             shutil.rmtree(d, ignore_errors=True)
+    left = sum(f.stat().st_size for sub in ("tracks", "images") if (pdir / sub).is_dir() for f in (pdir / sub).rglob("*") if f.is_file())
+    if left:
+        raise RuntimeError("Some files are still in use (a player or File Explorer window?). Close it and try again.")
     if n:
         set_meta(pdir, freed_tracks=n, freed_seconds=secs)
     return round(freed / 1e6, 1)
@@ -394,7 +399,10 @@ def add_cost(project: str, kind: str, credits: float, estimated: bool = True) ->
     try:
         path = _ledger_path()
         with _locked(path):
-            rows = read_json(path).get("rows", [])
+            data = read_json(path)
+            if not data and path.exists() and path.stat().st_size > 2:
+                return                                              # unreadable right now: never overwrite the history
+            rows = data.get("rows", [])
             rows.append({"at": time.time(), "project": project, "kind": kind, "credits": round(float(credits), 4), "estimated": bool(estimated)})
             write_json(path, {"rows": rows[-5000:]})
     except Exception:

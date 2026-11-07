@@ -37,6 +37,8 @@ def generate_music(pdir: Path, spec: dict, token: str, note, task_started, reque
         note(label)
         tid = client.generate(f"{spec['style']}, {scene}", scene, spec["model"], int(spec["minutes"] * 60), brand.NEGATIVE_TAGS)
         task_started(tid)                                              # saved at once, so a crash never loses paid work
+        if not spec.get("mock"):
+            projects.add_cost(pdir.name, "music", brand.CREDITS["suno_request"], True)   # paid as soon as the request is accepted
 
         def tick(sec, label=label):
             check_cancel()
@@ -49,8 +51,6 @@ def generate_music(pdir: Path, spec: dict, token: str, note, task_started, reque
             ext = ".wav" if c["audio_url"].endswith(".wav") else ".mp3"
             download(c["audio_url"], tracks_dir / f"{k:02d} - {playlist.safe_name(title)}{ext}")
             note(label)
-        if not spec.get("mock"):
-            projects.add_cost(pdir.name, "music", brand.CREDITS["suno_request"], True)
         request_done(i + 1)
 
 

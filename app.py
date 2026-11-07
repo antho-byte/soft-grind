@@ -1,4 +1,5 @@
 """soft grind. studio: Suno music -> playlist -> thumbnail -> YouTube metadata."""
+import html
 import io
 import json
 import os
@@ -25,6 +26,10 @@ if security.password_hash() and not st.session_state.get("_auth"):         # opt
             st.session_state["_auth"] = True
             st.rerun()
         st.error(msg_)
+    st.stop()
+if not security.password_hash() and str(st.get_option("server.address") or "") not in ("", "127.0.0.1", "localhost"):
+    st.markdown(theme.logo_html(), unsafe_allow_html=True)         # password removed while this window still listens on the network
+    st.error("The password was removed while other devices could still connect. Close this window and start the app again.")
     st.stop()
 PROJECTS = settings.projects_dir()
 SAVED = settings.load_keys()
@@ -473,15 +478,15 @@ if step == "projects":
                     theme.show_image(info["cover"], width="stretch")
                 else:
                     st.markdown('<div class="sg-cover-empty">no cover yet</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="sg-proj-name">{info["name"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="sg-proj-name">{html.escape(info["name"])}</div>', unsafe_allow_html=True)
                 if info["quote"]:
-                    st.markdown(f'<div class="sg-proj-quote">{info["quote"]}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="sg-proj-quote">{html.escape(info["quote"])}</div>', unsafe_allow_html=True)
                 st.markdown(f'<span class="sg-pill" style="background:{PILL.get(info["stage"], "#EFEFEF")}">{info["stage"]}</span> '
                             f'<span class="sg-proj-meta">{info["tracks"]} tracks · {round(info["seconds"] / 60)} min'
                             + (f' · ≈ {info["credits"]:.1f} credits' if info.get("credits") else "") + '</span>',
                             unsafe_allow_html=True)
                 if info["schedule"]:
-                    st.markdown(f'<span class="sg-proj-meta">publishes {info["schedule"]}</span>', unsafe_allow_html=True)
+                    st.markdown(f'<span class="sg-proj-meta">publishes {html.escape(info["schedule"])}</span>', unsafe_allow_html=True)
                 if info["job"]["running"]:
                     st.progress(info["job"]["progress"], text=f"{info['job']['done']} of {info['job']['total']} requests")
                 if info["render"]["running"]:

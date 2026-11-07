@@ -120,3 +120,10 @@ def test_free_space(tmp_path, monkeypatch):
     assert projects.free_space(p) >= 0
     assert not (p / "tracks").exists() and not (p / "images").exists()
     assert (p / "video.mp4").exists() and (p / "thumbnail.png").exists()
+
+
+def test_errors_ignore_numbers_in_paths():
+    from soft_grind import errors
+    assert errors.explain("FileNotFoundError: /p/mix-500/tracks")["title"] == "Something went wrong."
+    assert "key" in errors.explain("HTTP 401 invalid_token")["title"]
+    assert "too many" in errors.explain("error 429 too_many_requests")["title"]

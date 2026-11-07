@@ -29,6 +29,10 @@ def _write_settings(**kw) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     cfg = _read_settings(); cfg.update(kw)
     SETTINGS_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    try:
+        SETTINGS_FILE.chmod(0o600)          # holds the password hash and the phone-message topic
+    except OSError:
+        pass
 
 
 def projects_dir() -> Path:
