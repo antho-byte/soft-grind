@@ -262,6 +262,35 @@ def start_render(pdir: Path, crossfade: float = 4.0, fade_in: float = 3.0, fade_
     _spawn("soft_grind.render", pdir, RENDER)
 
 
+YT = "youtube.json"
+
+
+def youtube_status(pdir: Path) -> dict:
+    j = read_json(Path(pdir) / YT)
+    state = j.get("state", "none") if j else "none"
+    fresh = time.time() - (j or {}).get("updated", 0) < STALE_AFTER
+    if state in ("queued", "running") and not fresh:
+        state = "interrupted"
+    return {"state": state, "running": state in ("queued", "running"), "progress": float((j or {}).get("progress", 0.0)),
+            "message": (j or {}).get("message", ""), "error": (j or {}).get("error", ""), "note": (j or {}).get("note", "")}
+
+
+def start_youtube(pdir: Path, again: bool = False) -> None:
+    """Upload video.mp4 with its title, description, tags, thumbnail and schedule. Refuses a second upload unless `again`."""
+    pdir = Path(pdir)
+    if youtube_status(pdir)["running"]:
+        raise RuntimeError("This video is already being uploaded.")
+    m = meta(pdir)
+    if m.get("youtube_id") and not again:
+        raise RuntimeError("This video is already on YouTube.")
+    if not (pdir / "video.mp4").exists():
+        raise RuntimeError("Make the video first.")
+    if not m.get("title"):
+        raise RuntimeError("Write the YouTube text first (video tab).")
+    write_json(pdir / YT, {"state": "queued", "progress": 0.0, "message": "queued", "updated": time.time()})
+    _spawn("soft_grind.youtube_worker", pdir, YT)
+
+
 AUTO = "auto.json"
 AUTO_STEPS = ["making the music", "choosing the image", "writing the headline", "making the thumbnail", "building the video",
               "writing the youtube text"]
@@ -315,7 +344,8 @@ def cancel_job(pdir: Path) -> None:
 
 # ---------- trash: delete is a move, so a mistake can be undone ----------
 def is_busy(pdir: Path) -> bool:
-    return job_status(pdir)["running"] or render_status(pdir)["running"] or auto_status(pdir)["running"]
+    return (job_status(pdir)["running"] or render_status(pdir)["running"] or auto_status(pdir)["running"]
+            or youtube_status(pdir)["running"])
 
 
 def free_space(pdir: Path) -> float:

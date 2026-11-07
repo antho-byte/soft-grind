@@ -18,6 +18,8 @@ Pages: **videos** (one card per mix; new video step by step or fully automatic),
 - **phone messages** (settings): a free ntfy.sh topic pings your phone when a video is done or needs you.
 - **credits used** are tracked per video (estimates) and shown on the videos page.
 - **free up space** on a finished video deletes its songs and working images and keeps the video, thumbnail and upload text.
+- **upload to YouTube** (settings, youtube card): connect once with a Google Cloud 'Desktop app' login file; then each finished video uploads with
+  its title, description, tags, cover and schedule (private until the scheduled time). Optional in automatic mode.
 - **remote access** from your phone: see `docs/REMOTE.md` (Tailscale, always set a password first).
 - The app updates itself on start and rolls back if a new version fails its self-test.
 

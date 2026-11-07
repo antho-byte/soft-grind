@@ -10,7 +10,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import ai, brand, errors, fixes, headlines, imagegen, library, metadata, names, playlist, projects, health, notify, security, settings, texts, theme, thumbnail as T, video
+from soft_grind import youtube, ai, brand, errors, fixes, headlines, imagegen, library, metadata, names, playlist, projects, health, notify, security, settings, texts, theme, thumbnail as T, video
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
@@ -192,6 +192,59 @@ def render_panel(pdir_):
     st.fragment(run_every=3 if projects.render_status(pdir_)["running"] else None)(body)()
 
 
+def yt_panel(pdir_):
+    """Upload to YouTube: the button, live progress, and the link once it is there."""
+    def body():
+        ys = projects.youtube_status(pdir_)
+        m = projects.meta(pdir_)
+        was = st.session_state.get("_yt_was_running") == pdir_.name
+        if ys["running"]:
+            st.session_state["_yt_was_running"] = pdir_.name
+            st.progress(ys["progress"], text=ys["message"] or "uploading")
+            st.caption("This runs in the background. Keep the black window open.")
+            return
+        if was:
+            st.session_state.pop("_yt_was_running", None)
+            st.rerun()
+        if m.get("youtube_id"):
+            st.markdown(f'<span class="sg-chk">✓</span> on YouTube since {html.escape(m.get("youtube_at", ""))} · '
+                        f'[open in YouTube Studio]({youtube.studio_url(m["youtube_id"])})', unsafe_allow_html=True)
+            if ys["note"]:
+                st.warning(ys["note"])
+            if m.get("schedule") and youtube.publish_at(m["schedule"]):
+                st.caption(f"It is private and will go public by itself on {m['schedule']} (Amsterdam).")
+            if st.button("upload again as a new video", type="tertiary", key="yt_again"):
+                st.session_state["_yt_confirm_again"] = True
+            if st.session_state.get("_yt_confirm_again"):
+                st.warning("This makes a second copy on YouTube. The first one stays until you delete it in YouTube Studio.")
+                if st.button("yes, upload again", key="yt_again_yes"):
+                    st.session_state.pop("_yt_confirm_again", None)
+                    try:
+                        projects.start_youtube(pdir_, again=True)
+                        st.rerun()
+                    except RuntimeError as e:
+                        st.error(str(e))
+            return
+        if ys["state"] == "failed":
+            show_error(ys["error"], prefix="The upload did not finish. ")
+        elif ys["state"] == "interrupted":
+            st.warning("The upload stopped unexpectedly (window closed or computer asleep). Press upload again.")
+        if not youtube.connected():
+            st.caption("To upload straight to YouTube, connect it once in settings (youtube card).")
+            return
+        when = m.get("schedule", "")
+        st.caption("Uploads as private" + (f" and publishes by itself on {when} (Amsterdam)." if youtube.publish_at(when) else
+                   ": the scheduled time is in the past, so you publish it yourself in YouTube Studio."))
+        if st.button("upload to youtube", type="primary", width="stretch", disabled=not m.get("title"),
+                     help=None if m.get("title") else "Write the YouTube text first."):
+            try:
+                projects.start_youtube(pdir_)
+                st.rerun()
+            except RuntimeError as e:
+                st.error(str(e))
+    st.fragment(run_every=3 if projects.youtube_status(pdir_)["running"] else None)(body)()
+
+
 def job_panel(pdir_):
     """Live progress of the background music job. Refreshes itself while the job runs."""
     def body():
@@ -329,6 +382,35 @@ if step == "settings":
                        "The name above is the secret that lets a phone receive them: don't share it.")
         else:
             st.caption("Off. Turn it on to get a message on your phone when a video is ready, needs you, or stops. Free, no account.")
+    with st.container(key="card_youtube"):
+        st.markdown("**youtube**")
+        if youtube.connected():
+            st.markdown('<span class="sg-chk">✓</span> connected. Finished videos can be uploaded from the video tab.', unsafe_allow_html=True)
+            if st.button("disconnect youtube"):
+                youtube.disconnect()
+                st.rerun()
+        else:
+            st.caption("Lets the app upload a finished video with its title, description, tags, cover and schedule. Free; set up once.")
+            up = st.file_uploader("1. the login file from Google Cloud (the JSON you downloaded)", type=["json"], key="yt_client_file")
+            if up is not None and not youtube.has_client():
+                try:
+                    youtube.save_client(up.getvalue())
+                    st.rerun()
+                except youtube.YouTubeError as e:
+                    st.error(str(e))
+            if youtube.has_client():
+                st.markdown('<span class="sg-chk">✓</span> login file saved.', unsafe_allow_html=True)
+                st.caption("2. A Google window opens on this computer. Choose your channel's account, press Advanced, then continue, and allow access.")
+                if st.button("connect youtube", type="primary"):
+                    try:
+                        with st.spinner("waiting for you in the Google window (up to 4 minutes)…"):
+                            youtube.login()
+                        st.rerun()
+                    except youtube.YouTubeError as e:
+                        st.error(str(e))
+                if st.button("use a different login file", type="tertiary"):
+                    youtube._client_file().unlink(missing_ok=True)
+                    st.rerun()
     with st.container(key="card_security"):
         st.markdown("**security**")
         pw_new = st.text_input("app password", type="password", placeholder="set or change the password (8+ characters)",
@@ -401,6 +483,9 @@ if step == "projects":
         ai_on = bool(ai_token and not ai_mock)
         auto_improve = g3.checkbox("AI improves the music prompt", value=ai_on, disabled=not ai_on, key="auto_improve")
         n_songs = LENGTHS[auto_len]
+        auto_up = st.checkbox("upload to YouTube when it is ready (private until the scheduled time, so you can still check it)",
+                              value=False, disabled=not youtube.connected(), key="auto_upload",
+                              help="Connect YouTube in settings first." if not youtube.connected() else None)
         st.caption(f"about {n_songs / 2 * 0.28 + (0.03 if ai_on else 0):.1f} credits · runs in the background, so you can leave the page · "
                    "needs your image library to be looked at (images page) · start one video at a time for the first tries")
         if st.button("make the video", type="primary", disabled=not (mock or token) or not auto_scenes):
@@ -411,7 +496,8 @@ if step == "projects":
             projects.start_auto(pd_, {"style": brand.PRESETS[auto_sound], "scenes": auto_scenes, "n_req": n_songs // 2, "minutes": 6.0,
                                       "model": brand.MODELS[0], "name_style": auto_names, "mood_key": mood_key_, "mock": mock,
                                       "improve_prompt": bool(auto_improve and ai_on), "use_ai": ai_on, "ai_model": ai_model,
-                                      "crossfade": crossfade, "fade_in": 3.0, "fade_out": 6.0},
+                                      "crossfade": crossfade, "fade_in": 3.0, "fade_out": 6.0,
+                                      "upload": bool(auto_up and youtube.connected())},
                                 token, ai_token if ai_on else "")
             st.session_state["_auto_open"] = False
             st.toast(f"started {nm}")
@@ -1135,6 +1221,8 @@ if step == "video":
                         st.rerun()
                     except RuntimeError as e:
                         st.error(str(e))
+            if video_path.exists() and not rs["running"]:
+                yt_panel(pdir)
             if (pdir / "thumbnail.png").exists():
                 theme.show_image(pdir / "thumbnail.png", caption="thumbnail", width="stretch")
                 st.download_button("download thumbnail", data=lambda: (pdir / "thumbnail.png").read_bytes(),

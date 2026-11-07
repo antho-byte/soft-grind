@@ -161,3 +161,26 @@ def test_ai_buttons_survive_a_dead_network_and_damaged_pictures_never_crash():
             open_app(step=step, project=name)                                               # asserts: no exception
     finally:
         os.environ.pop("SOFTGRIND_AI_BASE_URL", None); os.environ.pop("ACEDATACLOUD_AI_TOKEN", None)
+
+
+def test_youtube_card_and_upload_button_appear_only_when_they_can_work():
+    settings, projects = home()
+    from soft_grind import youtube
+    importlib.reload(youtube)
+    at = open_app("settings")
+    assert any("youtube" == m.value.strip("*") for m in at.markdown) and not [b for b in at.button if b.label == "connect youtube"]
+    youtube.save_client('{"installed": {"client_id": "fake-id", "client_secret": "fake-secret"}}')
+    at = open_app("settings")
+    assert [b for b in at.button if b.label == "connect youtube"]
+    # a finished video: no connection yet -> only a hint; connected -> the upload button, enabled once the text exists
+    p = settings.projects_dir() / "mix-001"; (p / "tracks").mkdir(parents=True)
+    (p / "video.mp4").write_bytes(b"v")
+    at = open_app("video", "mix-001")
+    assert not [b for b in at.button if b.label == "upload to youtube"]
+    youtube._write_private(youtube._token_file(), {"refresh_token": "RT-fake"})
+    at = open_app("video", "mix-001")
+    btn = [b for b in at.button if b.label == "upload to youtube"]
+    assert btn and btn[0].disabled
+    projects.set_meta(p, title="night shift.", description="d", tags="lofi")
+    at = open_app("video", "mix-001")
+    assert not [b for b in at.button if b.label == "upload to youtube"][0].disabled

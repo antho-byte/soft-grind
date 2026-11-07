@@ -130,6 +130,11 @@ def run(job_path: str) -> None:
                                                                  [t.strip() for t in fields["tags"].split(",")], fields["pinned"], schedule),
                                              encoding="utf-8")
         save(state="done", step=n_steps, progress=1.0, message="ready to check", finished=time.time())
+        if spec.get("upload"):
+            try:
+                projects.start_youtube(pdir)                      # runs on its own and sends its own phone message
+            except RuntimeError as e:
+                notify.send(f"{name}: not uploaded", str(e)[:120], tags="warning")
         notify.send(f"{name} is ready", f"\"{projects.meta(pdir).get('quote', '')}\": the music, cover, video and text are made. Open soft grind. to check it.",
                     priority="high", tags="white_check_mark")
     except Cancelled:
