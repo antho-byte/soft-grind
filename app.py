@@ -127,7 +127,7 @@ def make_headline(analysis, mood, topic, use_ai=True):
 
 
 def assign_image(path, analysis, mood, topic):
-    """Use a library image for this video: 16:9 copy in the project, a matching headline, cover for the thumbnail step."""
+    """Use a library image for this video: 16:9 copy in the project, a matching headline, cover for the cover tab."""
     dest = library.prepare_for_project(Path(path), pdir)
     set_headline(make_headline(analysis, mood, topic))
     st.session_state["cover"] = (dest.name, dest.read_bytes())
@@ -188,7 +188,7 @@ def job_panel(pdir_):
             st.session_state.pop("_job_was_running", None)
             st.rerun()
         if job["state"] == "done":
-            st.success("done: the tracks are in this project. Open the playlist step to check the names.")
+            st.success("done: the tracks are in this project. Check and rename them in the tracks section below.")
         elif job["state"] == "failed":
             st.error(f"stopped: {job['error'] or 'unknown error'}. Tracks made so far are saved"
                      + (f" ({len(job['task_ids'])} requests were started)." if job["task_ids"] else "."))
@@ -731,7 +731,7 @@ if step == "thumbnail":
         c1, c2 = st.columns(2)
         up = c1.file_uploader("image (16:9, ≥1920px, no text in the image)", type=["png", "jpg", "jpeg", "webp"])
         fixed = sorted(p.name for p in imgs_dir.glob("*_16x9.png")) if imgs_dir.exists() else []
-        pick = c2.selectbox("…or pick an image you made 16:9 in the fix images step", ["—"] + fixed)
+        pick = c2.selectbox("…or pick an image you made 16:9 (switch below)", ["—"] + fixed)
     src_img, src_name = None, ""
     if up:
         st.session_state["cover"] = (up.name, up.getvalue())
@@ -741,7 +741,7 @@ if step == "thumbnail":
     elif st.session_state.get("cover"):
         src_name, data = st.session_state["cover"]; src_img = Image.open(io.BytesIO(data))
     if src_img is None:
-        st.info("Add an image above, or make one 16:9 in the fix images step.")
+        st.info("Add an image above, or make a vertical photo 16:9 with the switch below.")
     else:
         src_img.load()
         for w in T.image_warnings(src_img): st.warning(w)
@@ -823,7 +823,7 @@ if step == "thumbnail":
     if fix_on:
         with st.container(key="card_fix_images"):
             st.caption("Drop in your photos. The free option fills the sides with a blurred copy; the AI option "
-                       "extends the scene (like your Gemini step). Pick the ones you like and they show up in the thumbnail step.")
+                       "extends the scene (like your Gemini step). Pick the ones you like and they show up on the cover tab.")
             st.warning("Only use photos you have the rights to (your own, licensed, or AI-generated). "
                        "Pinterest photos usually belong to someone else. Check each result for garbled text, "
                        "signatures or logos.")
@@ -889,7 +889,7 @@ if step == "thumbnail":
                             if st.button("use this", key=f"use_{stem}_{label}"):
                                 imgs_dir.mkdir(parents=True, exist_ok=True)
                                 out_path = imgs_dir / f"{stem}_16x9.png"; img.save(out_path)
-                                st.success(f"saved {out_path.name}: now pick it in the thumbnail step")
+                                st.success(f"saved {out_path.name}: now pick it in the list at the top of the cover tab")
 
 if step == "video":
     ensure_quote()
@@ -902,7 +902,7 @@ if step == "video":
         form_slot = st.container(key="card_form")
         with st.expander("write the text for me (settings)"):
             if len(tracks) < 3:
-                st.warning("Add at least 3 tracks (music or playlist step): the tracklist needs real durations for chapters.")
+                st.warning("Add at least 3 tracks (music tab): the tracklist needs real durations for chapters.")
             c1, c2 = st.columns(2)
             with c1:
                 quote_m = sticky(st.text_input, "quote", "quote", saved.get("quote") or "you've got this.")
@@ -1053,7 +1053,7 @@ if step == "video":
                 else:
                     st.markdown('<div class="sg-cover-empty">no video yet</div>', unsafe_allow_html=True)
                 st.markdown(("✓" if tracks else "✗") + f" tracks ({len(tracks)}) &nbsp; " + ("✓" if still_ok else "✗")
-                            + " still image (thumbnail step)")
+                            + " video picture (cover tab)")
             with st.expander("video settings"):
                 f_in = st.number_input("fade in (s)", 0.0, 10.0, 3.0, 0.5)
                 f_out = st.number_input("fade out (s)", 0.0, 20.0, 6.0, 0.5)

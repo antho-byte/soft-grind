@@ -76,7 +76,7 @@ def run(job_path: str) -> None:
         if not (li and (pdir / "images" / f"{Path(li).stem}_16x9.png").exists()):
             db = {k: v for k, v in library.load_db().items() if v.get("analysis") and Path(k).exists()}
             if not db:
-                raise NeedsAttention("The music is ready, but the library has no images the app has looked at yet. Open the library step, "
+                raise NeedsAttention("The music is ready, but the library has no images the app has looked at yet. Open the images page, "
                                      "choose your folder and press 'look at the images', then press continue.")
             used = {k: v for k, v in library.used_images(root).items() if v != name}
             best = library.suggest(db, topic, mood, used, seed=name, n=1)[0]

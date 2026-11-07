@@ -120,7 +120,7 @@ def check_ai(token: str, model: str, base: str = "") -> dict:
 
 def check_library(folder: Path | None) -> dict:
     if not folder:
-        return _res("image library", "warn", "no folder chosen yet (library step)")
+        return _res("image library", "warn", "no folder chosen yet (images page)")
     if not Path(folder).is_dir():
         return _res("image library", "fail", f"the folder {folder} does not exist")
     files = library.scan(folder)
