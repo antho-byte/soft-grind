@@ -127,3 +127,19 @@ def test_errors_ignore_numbers_in_paths():
     assert errors.explain("FileNotFoundError: /p/mix-500/tracks")["title"] == "Something went wrong."
     assert "key" in errors.explain("HTTP 401 invalid_token")["title"]
     assert "too many" in errors.explain("error 429 too_many_requests")["title"]
+
+
+def test_new_videos_get_a_fresh_mix_of_scenes(tmp_path, monkeypatch):
+    """Each new video starts with different scene flavours: the ones recent videos used least."""
+    from soft_grind import brand, projects
+    monkeypatch.setenv("SOFTGRIND_HOME", str(tmp_path / "home"))
+    root = tmp_path / "projects"; root.mkdir()
+    topics = []
+    for _ in range(4):
+        nm = projects.create_project(root)
+        projects.set_meta(root / nm, tracks_placeholder=True)
+        t = projects.meta(root / nm)["topic"]
+        assert len(t) == 5 and len(set(t)) == 5 and set(t) <= set(brand.SCENES)
+        topics.append(t)
+    assert not set(topics[1]) & set(topics[0])                       # 12 scenes: the second video avoids all five of the first
+    assert len({tuple(sorted(t)) for t in topics}) == 4               # never the same mix twice in a row

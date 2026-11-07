@@ -495,7 +495,8 @@ if step == "projects":
         with where.popover("＋ new video", width="stretch", type="primary"):
             st.button("step by step", on_click=new_video, width="stretch", type="primary")
             st.caption("you choose the music, the image and the words yourself, one tab at a time")
-            st.button("automatic: the whole video", on_click=lambda: st.session_state.update(_auto_open=True), width="stretch")
+            st.button("automatic: the whole video", width="stretch",
+                      on_click=lambda: st.session_state.update(_auto_open=True, auto_scenes=projects.fresh_scenes(PROJECTS, 4)))
             st.caption("one button: music, image, headline, cover, video and text")
 
     def auto_form():
@@ -503,7 +504,7 @@ if step == "projects":
         st.caption("One button: the app makes the music, picks an image from your library, writes the headline, builds the thumbnail "
                    "and the video, and writes the YouTube text. You check it afterwards.")
         f1, f2 = st.columns(2)
-        auto_scenes = f1.multiselect("topic: scenes for the music and the picture", brand.SCENES, brand.SCENES[:4], key="auto_scenes")
+        auto_scenes = f1.multiselect("topic: scenes for the music and the picture", brand.SCENES, key="auto_scenes")
         auto_sound = f2.selectbox("sound", list(brand.PRESETS), key="auto_sound")
         g1, g2, g3 = st.columns(3)
         LENGTHS = {"about 1 hour (10 songs)": 10, "about 2 hours (20 songs)": 20, "short test (4 songs)": 4}
@@ -798,7 +799,12 @@ if step == "music":
             c1, c2, c3 = st.columns(3)
             n_tracks = c1.slider("tracks wanted", 2, 20, 8, 2, help="each request returns 2 tracks")
             minutes = c2.slider("target length (min)", 2.0, 6.0, 6.0, 0.5, help="API duration cap is 360 s")
-            scenes = c3.multiselect("scene flavours (rotated)", brand.SCENES, brand.SCENES[:6])
+            saved_topic = [s for s in (projects.meta(pdir).get("topic") or []) if s in brand.SCENES]
+            scenes = c3.multiselect("scene flavours (rotated)", brand.SCENES, saved_topic or projects.fresh_scenes(PROJECTS),
+                                    key=f"w_{name}_scenes", help="Each new video starts with its own mix. The requests take turns "
+                                                                 "through the scenes you pick here.")
+            if scenes and scenes != saved_topic:
+                projects.set_meta(pdir, topic=scenes)                     # remembered for this video (and used by the cover tab)
             st.session_state["_scenes_hint"] = scenes
             n_req = n_tracks // 2
             mood_key = "groovy" if "groovy" in preset else "calm"

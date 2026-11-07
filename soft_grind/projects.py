@@ -109,6 +109,19 @@ def next_project_name(root: Path, prefix: str = "mix") -> str:
     return f"{prefix}-{max(nums, default=0) + 1:03d}"
 
 
+def fresh_scenes(root: Path, k: int = 5, recent: int = 6) -> list[str]:
+    """A new mix of scene flavours: the ones the last few videos used least come first, ties broken at random."""
+    import random
+    rows = sorted(((meta(d).get("created", 0), meta(d).get("topic") or []) for d in project_dirs(root)), reverse=True)[:recent]
+    used: dict[str, int] = {}
+    for _, topic in rows:
+        for t in topic:
+            used[t] = used.get(t, 0) + 1
+    pool = list(brand.SCENES)
+    random.shuffle(pool)
+    return sorted(pool, key=lambda s: used.get(s, 0))[:k]
+
+
 def create_project(root: Path) -> str:
     """Next free name, a unique playlist name and a scenario. Returns the project name."""
     import random
@@ -118,7 +131,7 @@ def create_project(root: Path) -> str:
     pd.mkdir(parents=True, exist_ok=True)
     taken = [m for m in (meta(d).get("playlist_name") for d in project_dirs(root)) if m]
     used_quotes = recent_quotes(root, n=headlines.RECENT)
-    set_meta(pd, created=time.time(), scenario=random.choice(brand.SCENARIOS),
+    set_meta(pd, created=time.time(), topic=fresh_scenes(root), scenario=random.choice(brand.SCENARIOS),
              playlist_name=names.suggest([random.choice(brand.SCENES)], 1, taken, "calm")[0],
              quote=headlines.suggest("calm", [], used_quotes, 1)[0], quote_placeholder=True)   # replaced once an image is chosen
     return nm
