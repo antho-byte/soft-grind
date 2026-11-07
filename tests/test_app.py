@@ -225,3 +225,12 @@ def test_videos_page_next_step_buttons_and_bulk_actions(monkeypatch):
     q = projects.read_json(projects.queue_file("render"))
     assert sorted(Path(i).name for i in q["items"]) == ["mix-001", "mix-002"]
     assert projects.render_status(root / "mix-001")["state"] == "queued" and projects.render_status(root / "mix-003")["state"] == "none"
+
+
+def test_every_card_has_an_open_button_under_its_next_step():
+    settings, projects = home()
+    p = settings.projects_dir() / "mix-001"; (p / "tracks").mkdir(parents=True); (p / "tracks" / "01 - a.mp3").write_bytes(b"0")
+    at = open_app()
+    keys = [b.key for b in at.button if b.key in ("next_mix-001", "open_mix-001")]
+    assert keys == ["next_mix-001", "open_mix-001"]                                  # next step first, open below it
+    click(at, "open_mix-001"); assert at.session_state["project"] == "mix-001" and at.session_state["step"] != "projects"

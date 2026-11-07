@@ -94,7 +94,7 @@ h1,h2,h3{font-family:'Abril Fatface',serif!important;font-weight:400!important;c
 .stApp a[data-testid="stBaseLinkButton-primary"]{border-radius:10px!important;border:0!important;background:var(--indigo)!important;color:#fff!important;
   font-weight:600!important;box-shadow:0 1px 2px rgba(20,24,82,.2),0 4px 12px rgba(20,24,82,.14)!important}
 .stApp button[data-testid="stBaseButton-primary"]:hover{background:#262B78!important}
-.stApp button[data-testid="stBaseButton-primary"] p{color:#fff!important}
+.stApp button[data-testid="stBaseButton-primary"] p,.stApp a[data-testid="stBaseLinkButton-primary"] p{color:#fff!important}
 .stApp button[data-testid="stBaseButton-secondary"] p,.stApp a[data-testid="stBaseLinkButton-secondary"] p{color:var(--indigo)!important}
 .stApp button:disabled{opacity:.45}
 /* filter chips (segmented control) */

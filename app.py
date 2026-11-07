@@ -664,8 +664,6 @@ if step == "projects":
                 h1, h2 = st.columns([4, 1], vertical_alignment="center")
                 h1.checkbox(nm, key=f"sel_{nm}")
                 with h2.popover("⋯", width="stretch"):
-                    if st.button("open", key=f"open_{nm}", width="stretch"):
-                        open_project(nm, info["stage"]); st.rerun()
                     if info["has_video"] and (info["path"] / "tracks").is_dir() and not projects.is_busy(info["path"]):
                         if st.button("free up space", key=f"free_{nm}", width="stretch",
                                      help="Deletes the songs and working images of this finished video. The video, thumbnail and upload text stay."):
@@ -721,15 +719,17 @@ if step == "projects":
                             st.error(str(e))
                 label, kind, target = next_step(info)
                 if kind == "link":
-                    st.link_button(label, target, width="stretch")
+                    st.link_button(label, target, width="stretch", type="primary")
                 elif kind != "none" and not au["running"]:
-                    if st.button(label, key=f"next_{nm}", type="primary" if kind in ("render", "upload") else "secondary", width="stretch"):
+                    if st.button(label, key=f"next_{nm}", type="primary", width="stretch"):
                         if kind == "open":
                             st.session_state.update(project=nm, tracks=[], fix_results={}, step=target)
                             st.session_state.pop("_job_was_running", None)
                         else:
                             run_queue(kind, [info])
                         st.rerun()
+                if st.button("open video", key=f"open_{nm}", width="stretch", type="secondary"):
+                    open_project(nm, info["stage"]); st.rerun()
 
     running_any = any(p["job"]["running"] or p["render"]["running"] or p["auto"]["running"] or p["yt"]["running"] for p in all_items)
     st.fragment(run_every=4 if running_any else None)(grid)()
