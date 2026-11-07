@@ -31,7 +31,8 @@ def run(job_path: str) -> None:
         tracks = projects.audio_files(pdir / "tracks")
         durations = [playlist.audio_duration(t) for t in tracks]
         video.render_video(tracks, pdir / "still.png", pdir / "video.mp4", durations, spec.get("crossfade", 4.0),
-                           spec.get("fade_in", 3.0), spec.get("fade_out", 6.0), progress)
+                           spec.get("fade_in", 3.0), spec.get("fade_out", 6.0), progress,
+                           look=projects.film_look(pdir))
         save(state="done", progress=1.0, message="done", finished=time.time())
         notify.send(f"{pdir.name}: the video is built", "Open soft grind. to watch it.", tags="movie_camera")
     except video.VideoError as e:

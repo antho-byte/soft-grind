@@ -55,6 +55,14 @@ def meta(pdir: Path) -> dict:
     return read_json(Path(pdir) / META)
 
 
+def film_look(pdir: Path) -> dict | None:
+    """The film look for this video: its own choice if it has one (an empty choice means 'off'), else the default, else None."""
+    from . import settings as _s, video as _v
+    m = meta(pdir)
+    raw = m["film_look"] if "film_look" in m else _s._read_settings().get("film_look_default")
+    return _v.normalize_look(raw)
+
+
 @contextlib.contextmanager
 def _locked(path: Path, timeout: float = 5.0):
     """A tiny cross-platform lock file, so the app and a background job cannot overwrite each other's fields."""

@@ -82,8 +82,60 @@ def measure_loudness(inputs: list[Path], graph: str, total: float, on_progress=N
     return json.loads(blocks[-1])
 
 
+# ---------- film look: grain, vignette, flicker, dust, tint ----------
+GRAIN = {0: 0, 1: 7, 2: 14}                      # strength of the luma noise: off / low / medium
+TINTS = {"none": "", "warm": "colorbalance=rs=.04:gs=.01:bs=-.04:rm=.03:bm=-.03,eq=saturation=1.05",
+         "faded": "curves=all='0/0.05 1/0.95',eq=contrast=0.94:saturation=0.88"}
+LOOK_DEFAULT = {"grain": 1, "vignette": True, "flicker": True, "dust": False, "tint": "none", "fps": 15}
+
+
+def normalize_look(look: dict | None) -> dict | None:
+    """A clean look dict, or None when every effect is off (then the fast still-picture path is used)."""
+    if not look:
+        return None
+    out = {"grain": int(look.get("grain", 0)) if int(look.get("grain", 0)) in GRAIN else 0,
+           "vignette": bool(look.get("vignette")), "flicker": bool(look.get("flicker")), "dust": bool(look.get("dust")),
+           "tint": look.get("tint") if look.get("tint") in TINTS else "none",
+           "fps": min(30, max(8, int(look.get("fps", 15))))}
+    return out if (out["grain"] or out["vignette"] or out["flicker"] or out["dust"] or out["tint"] != "none") else None
+
+
+def look_graph(look: dict) -> str:
+    """The video part of the filter graph: [0:v] -> [v]."""
+    fps = look["fps"]
+    steps = ["scale=1920:1080:force_original_aspect_ratio=decrease", "pad=1920:1080:(ow-iw)/2:(oh-ih)/2", "format=yuv420p"]
+    if TINTS[look["tint"]]:
+        steps.append(TINTS[look["tint"]])
+    if look["vignette"]:
+        steps.append("vignette=PI/5")
+    if look["flicker"]:
+        steps.append("eq=brightness='0.012*sin(2*PI*t*1.3)+0.008*sin(2*PI*t*7.7)':eval=frame")
+    g = "[0:v]" + ",".join(steps) + "[base]"
+    last = "base"
+    if look["dust"]:                                   # a few bright specks per frame, drawn small and scaled up so they look soft
+        g += (f";color=c=black:s=480x270:r={fps},format=gray,geq=lum='if(gt(random(1),0.9995),255,0)',"
+              f"scale=1920:1080:flags=bicubic,format=yuv420p[dust];[base][dust]blend=all_mode=screen:all_opacity=0.3:shortest=0[dusty]")
+        last = "dusty"
+    tail = []
+    if look["grain"]:
+        tail.append(f"noise=c0s={GRAIN[look['grain']]}:c0f=t+u")      # luma only, changes every frame: looks like film, not TV static
+    tail.append("format=yuv420p")
+    return g + f";[{last}]" + ",".join(tail) + "[v]"
+
+
+def _video_args(look: dict | None) -> tuple[list[str], list[str]]:
+    """(input args before the still, encoder args). The plain path is unchanged: 2 fps still picture."""
+    if look:
+        return ["-framerate", str(look["fps"])], ["-r", str(look["fps"]), "-c:v", "libx264", "-preset", "veryfast",
+                                                  *(["-tune", "grain"] if look["grain"] else []), "-crf", "25",
+                                                  "-maxrate", "3500k", "-bufsize", "7000k"]      # grain would otherwise grow files to many GB
+    return ["-framerate", "2"], ["-r", "2", "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "23"]
+
+
 def render_video(tracks: list[Path], still: Path, out: Path, durations: list[float], crossfade: float = 4.0,
-                 fade_in: float = 3.0, fade_out: float = 6.0, on_progress: Callable[[float, str], None] | None = None) -> Path:
+                 fade_in: float = 3.0, fade_out: float = 6.0, on_progress: Callable[[float, str], None] | None = None,
+                 look: dict | None = None) -> Path:
+    look = normalize_look(look)
     if not tracks:
         raise VideoError("No tracks to mix.")
     if not Path(still).exists():
@@ -109,13 +161,16 @@ def render_video(tracks: list[Path], still: Path, out: Path, durations: list[flo
         f":measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true[out]")
     out = Path(out); out.parent.mkdir(parents=True, exist_ok=True)
     partial = out.with_name(out.stem + ".partial.mp4")
-    cmd = [ffmpeg_exe(), "-hide_banner", "-nostats", "-y", "-progress", "pipe:1", "-loop", "1", "-framerate", "2", "-i", str(still)]
+    in_args, enc = _video_args(look)
+    cmd = [ffmpeg_exe(), "-hide_banner", "-nostats", "-y", "-progress", "pipe:1", "-loop", "1", *in_args, "-i", str(still)]
     for p in tracks:
         cmd += ["-i", str(p)]
-    cmd += ["-filter_complex", graph, "-map", "0:v", "-map", "[out]",
-            "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
-            "-r", "2", "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "23",
-            "-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-t", f"{total:.3f}", "-movflags", "+faststart", "-f", "mp4", str(partial)]
+    if look:                                                  # the picture goes through the graph too
+        cmd += ["-filter_complex", look_graph(look) + ";" + graph, "-map", "[v]", "-map", "[out]", *enc]
+    else:
+        cmd += ["-filter_complex", graph, "-map", "0:v", "-map", "[out]",
+                "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p", *enc]
+    cmd += ["-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-t", f"{total:.3f}", "-movflags", "+faststart", "-f", "mp4", str(partial)]
     _run(cmd, total, prog(0.4, 1.0, "building the video"))
     os.replace(partial, out)
     try:
@@ -124,6 +179,21 @@ def render_video(tracks: list[Path], still: Path, out: Path, durations: list[flo
         pass                                              # the preview is a convenience, never a reason to fail
     if on_progress:
         on_progress(1.0, "done")
+    return out
+
+
+def look_preview(still: Path, out: Path, look: dict, seconds: int = 20) -> Path:
+    """A short silent clip of the picture with the film look, at full size, so the grain can be judged before the long render."""
+    look = normalize_look(look)
+    if not look:
+        raise VideoError("Every effect is off: nothing to preview.")
+    out = Path(out)
+    partial = out.with_name(out.stem + ".partial.mp4")
+    in_args, enc = _video_args(look)
+    _run([ffmpeg_exe(), "-hide_banner", "-nostats", "-y", "-loop", "1", *in_args, "-i", str(still),
+          "-filter_complex", look_graph(look), "-map", "[v]", *enc, "-t", str(seconds), "-an", "-movflags", "+faststart",
+          "-f", "mp4", str(partial)], 0, None)
+    os.replace(partial, out)
     return out
 
 

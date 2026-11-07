@@ -192,6 +192,47 @@ def render_panel(pdir_):
     st.fragment(run_every=3 if projects.render_status(pdir_)["running"] else None)(body)()
 
 
+def film_look_ui(pdir_, vname):
+    """Subtle film effects. Off = the fast plain picture. Try them on a 20-second test before the long render."""
+    cur = projects.film_look(pdir_) or {}
+    base = {**video.LOOK_DEFAULT, **cur}
+    on = st.toggle("use a film look", value=bool(cur), key=f"look_on_{vname}")
+    if not on:
+        if cur and st.session_state.get(f"_look_saved_{vname}") != "off":
+            projects.set_meta(pdir_, film_look={})
+            st.session_state[f"_look_saved_{vname}"] = "off"
+            st.rerun()
+        st.caption("Off: a still picture, quickest to make and a small file.")
+        return
+    grain = st.select_slider("grain", options=[0, 1, 2], value=base["grain"], format_func=lambda v: ["none", "low", "medium"][v],
+                             key=f"look_grain_{vname}")
+    c1, c2 = st.columns(2)
+    vig = c1.checkbox("vignette (darker corners)", value=base["vignette"], key=f"look_vig_{vname}")
+    flick = c2.checkbox("gentle flicker", value=base["flicker"], key=f"look_flick_{vname}")
+    dust = c1.checkbox("dust and specks", value=base["dust"], key=f"look_dust_{vname}")
+    tint = c2.selectbox("colour", ["none", "warm", "faded"], index=["none", "warm", "faded"].index(base["tint"]), key=f"look_tint_{vname}")
+    fps = st.select_slider("frames per second", options=[12, 15, 24], value=base["fps"] if base["fps"] in (12, 15, 24) else 15,
+                           key=f"look_fps_{vname}", help="12 to 15 looks most like film, and is quicker and smaller.")
+    new = {"grain": grain, "vignette": vig, "flicker": flick, "dust": dust, "tint": tint, "fps": fps}
+    if new != {k: base[k] for k in new} or not cur:
+        projects.set_meta(pdir_, film_look=new)
+    st.caption("Applies the next time you press make the video. It takes longer than a plain picture (roughly 20 minutes per hour of video "
+               "on low grain at 15 frames per second) and the file is bigger: about 0.4 GB per hour, up to about 1.6 GB on medium grain at 24.")
+    if st.button("20-second test", key=f"look_test_{vname}", disabled=not (pdir_ / "still.png").exists(),
+                 help=None if (pdir_ / "still.png").exists() else "Make the cover first."):
+        try:
+            with st.spinner("making the test…"):
+                video.look_preview(pdir_ / "still.png", pdir_ / "look_test.mp4", new)
+            st.session_state[f"_look_test_{vname}"] = True
+        except video.VideoError as e:
+            show_error(str(e))
+    if st.session_state.get(f"_look_test_{vname}") and (pdir_ / "look_test.mp4").exists():
+        st.video(str(pdir_ / "look_test.mp4"), loop=True, autoplay=True, muted=True)
+    if st.button("use this look for all new videos", key=f"look_default_{vname}", type="tertiary"):
+        settings._write_settings(film_look_default=new)
+        st.toast("saved as your default")
+
+
 def yt_panel(pdir_):
     """Upload to YouTube: the button, live progress, and the link once it is there."""
     def body():
@@ -1212,7 +1253,9 @@ if step == "video":
             with st.expander("video settings"):
                 f_in = st.number_input("fade in (s)", 0.0, 10.0, 3.0, 0.5)
                 f_out = st.number_input("fade out (s)", 0.0, 20.0, 6.0, 0.5)
-                st.caption(f"Crossfade {crossfade:g}s (set under keys and settings) · loudness −14 LUFS · still image, no animation.")
+                st.caption(f"Crossfade {crossfade:g}s (set under keys and settings) · loudness −14 LUFS.")
+            with st.expander("film look (grain, vignette…)"):
+                film_look_ui(pdir, name)
             if not rs["running"]:
                 if st.button("make the video again" if video_path.exists() else "make the video", type="secondary" if video_path.exists() else "primary",
                              disabled=not (tracks and still_ok), width="stretch"):

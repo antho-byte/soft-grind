@@ -108,7 +108,7 @@ def run(job_path: str) -> None:
             tr = projects.audio_files(pdir / "tracks")
             video.render_video(tr, pdir / "still.png", pdir / "video.mp4", [playlist.audio_duration(t) for t in tr],
                                spec.get("crossfade", 4.0), spec.get("fade_in", 3.0), spec.get("fade_out", 6.0),
-                               on_progress=lambda f, msg: (check_cancel(), at(4, f, msg)))
+                               on_progress=lambda f, msg: (check_cancel(), at(4, f, msg)), look=projects.film_look(pdir))
 
         # 6 text + publish slot
         check_cancel(); at(5, 0.0, "writing the youtube text")
