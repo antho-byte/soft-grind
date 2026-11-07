@@ -81,3 +81,6 @@ QUESTIONS = ["what are you working on tonight?", "what's the one thing you'll fi
              "what's on your desk this evening?", "what are you studying for?", "what's keeping you up tonight?"]
 PINNED_EXTRA = ["what's on your desk tonight? share it below.", "tell us what you're building this evening.",
                 "what are you focusing on right now?", "what's the plan for the next hour?", "share what you're working on, we'd love to know."]
+
+# What things cost in AceDataCloud credits (from the owner's own numbers: 4 songs = 0.56, 1 image edit = 0.20). Estimates; AI text is exact.
+CREDITS = {"suno_request": 0.28, "image_edit": 0.20}

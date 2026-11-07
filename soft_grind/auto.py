@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from . import ai, brand, headlines, library, playlist, projects, settings, texts, thumbnail as T, video, worker
+from . import ai, brand, errors, headlines, library, notify, playlist, projects, settings, texts, thumbnail as T, video, worker
 from .suno import SunoError
 
 
@@ -61,7 +61,8 @@ def run(job_path: str) -> None:
             style = spec["style"]
             if spec.get("improve_prompt") and ai_client and not projects.meta(pdir).get("prompt_improved"):
                 at(0, 0.0, "improving the music prompt")
-                style, _ = ai_client.improve_music_prompt(style, topic)
+                style, c = ai_client.improve_music_prompt(style, topic)
+                projects.add_cost(name, "ai", c, False)
                 projects.set_meta(pdir, prompt_improved=True, style=style)
             sub = dict(spec, n_req=remaining, style=projects.meta(pdir).get("style") or style)
             worker.generate_music(pdir, sub, suno_token, note=lambda m: at(0, job.get("_done", 0) / max(1, remaining), m),
@@ -89,7 +90,8 @@ def run(job_path: str) -> None:
             analysis = (library.load_db().get(li) or {}).get("analysis") or {"description": "", "scenes": list(topic)[:2]}
             used_q = projects.recent_quotes(root, exclude=name, n=headlines.RECENT)
             used_q.add(projects.meta(pdir).get("quote", ""))                  # not the placeholder either
-            h, _ = headlines.pick(analysis, mood, list(topic), used_q, ai_client)
+            h, c = headlines.pick(analysis, mood, list(topic), used_q, ai_client)
+            projects.add_cost(name, "ai", c, False)
             projects.set_meta(pdir, quote=h, quote_placeholder=False)
 
         # 4 thumbnail + still
@@ -115,10 +117,11 @@ def run(job_path: str) -> None:
             tracks = playlist.tracks_from_folder(pdir / "tracks")
             idx = len(projects.project_dirs(root))
             analysis = (library.load_db().get(li) or {}).get("analysis") or {}
-            fields, parts, _, by_ai = texts.compose(
+            fields, parts, c, by_ai = texts.compose(
                 quote=m["quote"], tracks=tracks, mood=mood, topic=list(topic), image_description=analysis.get("description", ""),
                 playlist_name=m.get("playlist_name", ""), scenario=m.get("scenario", ""), crossfade=spec.get("crossfade", 4.0), idx=idx,
                 previous=texts.previous_parts(root, exclude=name), ai_client=ai_client)
+            projects.add_cost(name, "ai", c, False)
             taken = {projects.meta(d).get("schedule", "") for d in projects.project_dirs(root) if d != pdir}
             schedule = projects.next_free_slot(taken).strftime("%Y-%m-%d %H:%M")
             projects.set_meta(pdir, **fields, schedule=schedule, text_parts=parts, text_by_ai=by_ai)
@@ -127,15 +130,20 @@ def run(job_path: str) -> None:
                                                                  [t.strip() for t in fields["tags"].split(",")], fields["pinned"], schedule),
                                              encoding="utf-8")
         save(state="done", step=n_steps, progress=1.0, message="ready to check", finished=time.time())
+        notify.send(f"{name} is ready", f"\"{projects.meta(pdir).get('quote', '')}\": the music, cover, video and text are made. Open soft grind. to check it.",
+                    priority="high", tags="white_check_mark")
     except Cancelled:
         save(state="cancelled", message="cancelled")
     except NeedsAttention as e:
         save(state="needs_attention", message="needs attention", error=str(e))
+        notify.send(f"{name} needs you", "Open soft grind. to see what is missing.", priority="high", tags="raising_hand")
     except (SunoError, video.VideoError) as e:
         save(state="failed", message="failed", error=str(e))
+        notify.send(f"{name} stopped", errors.explain(str(e))["title"], priority="high", tags="warning")
     except Exception as e:
         traceback.print_exc()
         save(state="failed", message="failed", error=f"{e.__class__.__name__}: {e}")
+        notify.send(f"{name} stopped", errors.explain(str(e))["title"], priority="high", tags="warning")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import playlist, projects, video
+from . import errors, notify, playlist, projects, video
 
 
 def run(job_path: str) -> None:
@@ -33,11 +33,14 @@ def run(job_path: str) -> None:
         video.render_video(tracks, pdir / "still.png", pdir / "video.mp4", durations, spec.get("crossfade", 4.0),
                            spec.get("fade_in", 3.0), spec.get("fade_out", 6.0), progress)
         save(state="done", progress=1.0, message="done", finished=time.time())
+        notify.send(f"{pdir.name}: the video is built", "Open soft grind. to watch it.", tags="movie_camera")
     except video.VideoError as e:
         save(state="failed", message="failed", error=str(e))
+        notify.send(f"{pdir.name}: the video failed", errors.explain(str(e))["title"], priority="high", tags="warning")
     except Exception as e:
         traceback.print_exc()
         save(state="failed", message="failed", error=f"{e.__class__.__name__}: {e}")
+        notify.send(f"{pdir.name}: the video failed", errors.explain(str(e))["title"], priority="high", tags="warning")
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ VERSION_FILE = HERE / ".version"
 BAD_FILE = HERE / ".bad_version"                                    # a version that failed its self-test: not tried again
 HOME = Path(os.getenv("SOFTGRIND_HOME") or Path.home() / "soft-grind-data")
 PREVIOUS = HOME / "previous-version"                                # the version you had before the last update
-CODE = ["app.py", "update.py", "requirements.txt", "README.md", "soft_grind", "fonts", "tests", ".streamlit"]  # start files stay
+CODE = ["app.py", "update.py", "requirements.txt", "README.md", "soft_grind", "fonts", "docs", "tests", ".streamlit"]  # start files stay
 
 
 def _get(url: str, accept: str = "") -> bytes:

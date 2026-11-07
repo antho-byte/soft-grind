@@ -7,7 +7,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import ai, library, projects, settings
+from . import ai, library, notify, projects, settings
 
 
 def run(job_path: str) -> None:
@@ -30,6 +30,10 @@ def run(job_path: str) -> None:
             save(done=i, total=n, message=f"{i}/{n} · {name}")
         spent[0] = library.analyse_pending(files, client, progress)
         save(state="done", message=f"done: {len(todo)} images", spent=spent[0], finished=time.time())
+        if spent[0]:
+            projects.add_cost("(images)", "ai", spent[0], False)
+        if todo:
+            notify.send("images looked at", f"{len(todo)} images are ready to be matched to your videos.", priority="low", tags="frame_with_picture")
     except Exception as e:
         traceback.print_exc()
         save(state="failed", message="failed", error=f"{e.__class__.__name__}: {e}")

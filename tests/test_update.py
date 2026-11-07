@@ -11,7 +11,7 @@ def make_zip(version):
         z.writestr("soft-grind-main/soft_grind/new_module.py", f"V={version}\n")
         z.writestr("soft-grind-main/requirements.txt", "streamlit\n")
         z.writestr("soft-grind-main/update.py", (ROOT / "update.py").read_text())   # the updater ships itself
-        for extra in ("README.md", "fonts/f.txt", "tests/t.txt", ".streamlit/config.toml"):  # every other CODE entry
+        for extra in ("README.md", "fonts/f.txt", "docs/d.txt", "tests/t.txt", ".streamlit/config.toml"):  # every other CODE entry
             z.writestr(f"soft-grind-main/{extra}", "x\n")
     return b.getvalue()
 

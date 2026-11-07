@@ -12,7 +12,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import brand, names, playlist, projects, settings
+from . import brand, errors, names, notify, playlist, projects, settings
 from .suno import SunoClient, SunoError, download
 
 
@@ -49,6 +49,8 @@ def generate_music(pdir: Path, spec: dict, token: str, note, task_started, reque
             ext = ".wav" if c["audio_url"].endswith(".wav") else ".mp3"
             download(c["audio_url"], tracks_dir / f"{k:02d} - {playlist.safe_name(title)}{ext}")
             note(label)
+        if not spec.get("mock"):
+            projects.add_cost(pdir.name, "music", brand.CREDITS["suno_request"], True)
         request_done(i + 1)
 
 
@@ -75,13 +77,16 @@ def run(job_path: str) -> None:
                        task_started=lambda t: save(task_ids=job.get("task_ids", []) + [t]),
                        request_done=lambda d: save(done_requests=d), check_cancel=check_cancel)
         save(state="done", message="done", finished=time.time())
+        notify.send(f"{pdir.name}: the music is ready", f"{n * 2} tracks are in. Open soft grind. to check the names.", tags="musical_note")
     except Cancelled:
         save(state="cancelled", message="cancelled")
     except SunoError as e:
         save(state="failed", message="failed", error=str(e))
+        notify.send(f"{pdir.name}: the music stopped", errors.explain(str(e))["title"], priority="high", tags="warning")
     except Exception as e:                                           # never die silently: the app shows this
         traceback.print_exc()
         save(state="failed", message="failed", error=f"{e.__class__.__name__}: {e}")
+        notify.send(f"{pdir.name}: the music stopped", errors.explain(str(e))["title"], priority="high", tags="warning")
 
 
 if __name__ == "__main__":

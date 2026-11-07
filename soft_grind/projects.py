@@ -190,6 +190,9 @@ def stage(info: dict) -> str:
 def list_projects(root: Path) -> list[dict]:
     root = Path(root)
     out = []
+    spent: dict[str, float] = {}
+    for row in credits_rows():
+        spent[row.get("project", "")] = spent.get(row.get("project", ""), 0.0) + row["credits"]
     for p in project_dirs(root):
         if not any(f.is_file() for f in p.rglob("*")):        # empty folders (the app creates one per typed name) are not videos
             continue
@@ -199,7 +202,7 @@ def list_projects(root: Path) -> list[dict]:
                 "quote": m.get("quote", ""), "playlist_name": m.get("playlist_name", ""),
                 "has_thumbnail": (p / "thumbnail.png").exists(), "has_upload": bool(m.get("title")) and (p / "upload.txt").exists(),
                 "has_video": (p / "video.mp4").exists(), "title": m.get("title", ""), "schedule": m.get("schedule", ""),
-                "render": render_status(p), "auto": auto_status(p),
+                "render": render_status(p), "auto": auto_status(p), "credits": round(spent.get(p.name, 0.0), 2),
                 "job": job_status(p), "updated": max([f.stat().st_mtime for f in p.rglob("*") if f.is_file()] or [p.stat().st_mtime])}
         info["stage"] = stage(info)
         out.append(info)
@@ -354,3 +357,37 @@ def restore_project(folder: Path, root: Path) -> str:
 def delete_forever(folder: Path) -> None:
     import shutil
     shutil.rmtree(folder)
+
+
+# ---------- credits ledger: one file, so the total is easy to read ----------
+def _ledger_path() -> Path:
+    from . import settings as _s
+    return _s.DATA_DIR / "credits.json"
+
+
+def add_cost(project: str, kind: str, credits: float, estimated: bool = True) -> None:
+    """Remember what something cost. Never raises: bookkeeping must not stop a video."""
+    if not credits:
+        return
+    try:
+        path = _ledger_path()
+        with _locked(path):
+            rows = read_json(path).get("rows", [])
+            rows.append({"at": time.time(), "project": project, "kind": kind, "credits": round(float(credits), 4), "estimated": bool(estimated)})
+            write_json(path, {"rows": rows[-5000:]})
+    except Exception:
+        pass
+
+
+def credits_rows() -> list[dict]:
+    return read_json(_ledger_path()).get("rows", [])
+
+
+def credits_for(project: str) -> float:
+    return round(sum(r["credits"] for r in credits_rows() if r.get("project") == project), 2)
+
+
+def credits_this_month(now=None) -> float:
+    t = time.localtime(now or time.time())
+    return round(sum(r["credits"] for r in credits_rows()
+                     if time.localtime(r["at"]).tm_year == t.tm_year and time.localtime(r["at"]).tm_mon == t.tm_mon), 2)

@@ -9,7 +9,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import ai, brand, fixes, headlines, imagegen, library, metadata, names, playlist, projects, health, security, settings, texts, theme, thumbnail as T, video
+from soft_grind import ai, brand, errors, fixes, headlines, imagegen, library, metadata, names, playlist, projects, health, notify, security, settings, texts, theme, thumbnail as T, video
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
@@ -92,6 +92,18 @@ def open_project(nm, stage_name):
     st.session_state.pop("_job_was_running", None)
 
 
+REMOTE_HELP = (Path(__file__).resolve().parent / "docs" / "REMOTE.md").read_text(encoding="utf-8") if (Path(__file__).resolve().parent / "docs" / "REMOTE.md").exists() else "See docs/REMOTE.md."
+
+
+def show_error(raw, kind="error", prefix=""):
+    """A plain message with what to do, and the original text under 'technical details' (it has a copy button)."""
+    e = errors.explain(raw)
+    getattr(st, kind)(f"**{prefix}{e['title']}** {e['advice']}")
+    if e["raw"]:
+        with st.expander("technical details"):
+            st.code(e["raw"], language=None)
+
+
 def used_quotes(exclude=""):
     """Headlines of the last 30 videos: a headline may come back after that."""
     return projects.recent_quotes(PROJECTS, exclude, headlines.RECENT)
@@ -120,6 +132,7 @@ def make_headline(analysis, mood, topic, use_ai=True):
             opts, cost = ai.AIClient(ai_token, ai_model).suggest_headlines(analysis.get("description", ""), mood, scenes, used)
             if opts:
                 st.session_state["_ai_spent"] = st.session_state.get("_ai_spent", 0.0) + cost
+                projects.add_cost(name, "ai", cost, False)
                 return opts[0]
         except ai.AIError:
             pass
@@ -168,7 +181,7 @@ def render_panel(pdir_):
             st.session_state.pop("_render_was_running", None)
             st.rerun()
         if rs["state"] == "failed":
-            st.error(f"The video could not be made: {rs['error']}")
+            show_error(rs["error"], prefix="The video could not be made. ")
         elif rs["state"] == "interrupted":
             st.warning("The video job stopped unexpectedly (window closed or computer asleep). Press make the video again.")
     st.fragment(run_every=3 if projects.render_status(pdir_)["running"] else None)(body)()
@@ -190,8 +203,8 @@ def job_panel(pdir_):
         if job["state"] == "done":
             st.success("done: the tracks are in this project. Check and rename them in the tracks section below.")
         elif job["state"] == "failed":
-            st.error(f"stopped: {job['error'] or 'unknown error'}. Tracks made so far are saved"
-                     + (f" ({len(job['task_ids'])} requests were started)." if job["task_ids"] else "."))
+            show_error(job["error"] or "unknown error", prefix="Stopped. ")
+            st.caption("Tracks made so far are saved" + (f" ({len(job['task_ids'])} requests were started)." if job["task_ids"] else "."))
         elif job["state"] == "cancelled":
             st.info("cancelled. Tracks made so far are saved.")
         elif job["state"] == "interrupted":
@@ -293,6 +306,24 @@ if step == "settings":
                 if skipped:
                     st.warning("left in place (already has files in the new folder): " + ", ".join(skipped))
         st.caption(f"your keys live in `{settings.DATA_DIR}`, outside the app folder")
+    with st.container(key="card_notify"):
+        st.markdown("**phone messages**")
+        notify_on = st.toggle("tell my phone when a video is ready, or needs me", value=notify.enabled(), key="notify_toggle")
+        if notify_on != notify.enabled():
+            notify.enable() if notify_on else notify.disable()
+            st.rerun()
+        if notify.enabled():
+            st.markdown("1. Install the free app **ntfy** on your phone (iPhone or Android).  \n"
+                        "2. In it, add a subscription with this exact name:")
+            st.code(notify.topic(), language=None)
+            st.markdown("3. Press the test button.")
+            if st.button("send a test message"):
+                st.toast("sent: check your phone" if notify.send("soft grind. test", "It works: you will hear from me here.", tags="tada")
+                         else "could not send: check the internet connection")
+            st.caption("Messages travel through ntfy.sh, a free public service. They contain only the video name and headline, never keys. "
+                       "The name above is the secret that lets a phone receive them: don't share it.")
+        else:
+            st.caption("Off. Turn it on to get a message on your phone when a video is ready, needs you, or stops. Free, no account.")
     with st.container(key="card_security"):
         st.markdown("**security**")
         pw_new = st.text_input("app password", type="password", placeholder="set or change the password (8+ characters)",
@@ -321,6 +352,8 @@ if step == "settings":
             st.caption(f"After a restart, open `{security.lan_url()}` on a device on the same network, and enter the password.")
         else:
             st.caption("Right now only this computer can open the app.")
+        with st.expander("how to reach the app from your phone or work laptop, away from home"):
+            st.markdown(REMOTE_HELP)
     with st.container(key="card_setup"):
         st.markdown("**check my setup**")
         st.caption("Each key is tested with a free question that does not make anything, so this costs nothing. "
@@ -382,6 +415,10 @@ if step == "projects":
             st.session_state["_auto_open"] = False
             st.rerun()
 
+    disk = health.check_disk(PROJECTS)
+    st.caption(f"credits used this month ≈ {projects.credits_this_month():.1f} (songs and images are estimates, AI text is exact) · {disk['detail']}")
+    if disk["status"] != "ok":
+        st.warning(f"Disk space: {disk['detail']}. Archive or delete finished videos below.")
     todo = [("Suno key", bool(token)), ("image key", bool(img_token)), ("AI helper key", bool(ai_token)),
             ("image folder", bool(settings.library_dir()))]
     if not all(ok for _, ok in todo) and not st.session_state.get("_hide_start"):
@@ -440,7 +477,8 @@ if step == "projects":
                 if info["quote"]:
                     st.markdown(f'<div class="sg-proj-quote">{info["quote"]}</div>', unsafe_allow_html=True)
                 st.markdown(f'<span class="sg-pill" style="background:{PILL.get(info["stage"], "#EFEFEF")}">{info["stage"]}</span> '
-                            f'<span class="sg-proj-meta">{info["tracks"]} tracks · {round(info["seconds"] / 60)} min</span>',
+                            f'<span class="sg-proj-meta">{info["tracks"]} tracks · {round(info["seconds"] / 60)} min'
+                            + (f' · ≈ {info["credits"]:.1f} credits' if info.get("credits") else "") + '</span>',
                             unsafe_allow_html=True)
                 if info["schedule"]:
                     st.markdown(f'<span class="sg-proj-meta">publishes {info["schedule"]}</span>', unsafe_allow_html=True)
@@ -454,7 +492,10 @@ if step == "projects":
                     st.caption(au["message"])
                     st.button("cancel", key=f"cancel_auto_{info['name']}", on_click=projects.cancel_job, args=(info["path"],))
                 elif au["state"] in ("needs_attention", "failed", "interrupted"):
-                    st.warning(au["error"] or "The job stopped unexpectedly (window closed or computer asleep). Press continue.")
+                    if au["error"] and au["state"] == "needs_attention":
+                        st.warning(au["error"])
+                    else:
+                        show_error(au["error"] or "The job stopped unexpectedly (the window was closed or the computer went to sleep).", "warning")
                     if st.button("continue", key=f"resume_auto_{info['name']}"):
                         try:
                             projects.start_auto(info["path"], projects.read_json(info["path"] / projects.AUTO)["spec"], token, ai_token)
@@ -528,6 +569,7 @@ if step == "music":
                     st.session_state["_style_keep"] = better
                     st.session_state["style_v"] += 1
                     st.session_state["_ai_spent"] = st.session_state.get("_ai_spent", 0.0) + cost
+                    projects.add_cost(name, "ai", cost, False)
                     st.session_state["_ai_note"] = "improved by AI" + (f" · {cost:.4f} credits" if cost else "")
                 except ai.AIError as e:
                     st.session_state["_ai_note"] = f"AI helper error: {e}"
@@ -869,6 +911,8 @@ if step == "thumbnail":
                             ep, body = templates[m]
                             out = client.edit(ep, json.loads(body), m, canvas, prompt, resolution)
                             row["outs"][m] = imagegen.finish_16x9(out)
+                            if not img_mock:
+                                projects.add_cost(name, "image", brand.CREDITS["image_edit"], True)
                         except json.JSONDecodeError as e:
                             row["outs"][m] = (None, f"request JSON is invalid: {e}")
                         except Exception as e:
@@ -947,6 +991,7 @@ if step == "video":
                     idx=len(projects.project_dirs(PROJECTS)), previous=texts.previous_parts(PROJECTS, exclude=name),
                     ai_client=ai.AIClient(ai_token, ai_model))
                 projects.set_meta(pdir, text_parts=parts_, text_by_ai=by_ai_)
+                projects.add_cost(name, "ai", cost_, False)
                 st.toast(("written by the AI" + (f" · {cost_:.3f} credits" if cost_ else "")) if by_ai_ else
                          "The AI text did not pass the checks, so the rotating templates were used instead.")
             st.session_state[vkey] = st.session_state.get(vkey, 0) + 1
@@ -1054,6 +1099,7 @@ if step == "video":
                     st.markdown('<div class="sg-cover-empty">no video yet</div>', unsafe_allow_html=True)
                 st.markdown(("✓" if tracks else "✗") + f" tracks ({len(tracks)}) &nbsp; " + ("✓" if still_ok else "✗")
                             + " video picture (cover tab)")
+            st.caption(f"credits used for this video: ≈ {projects.credits_for(name):.1f}")
             with st.expander("video settings"):
                 f_in = st.number_input("fade in (s)", 0.0, 10.0, 3.0, 0.5)
                 f_out = st.number_input("fade out (s)", 0.0, 20.0, 6.0, 0.5)
