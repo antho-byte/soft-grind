@@ -156,6 +156,37 @@ h1,h2,h3{font-family:'Abril Fatface',serif!important;font-weight:400!important;c
 .stApp [data-testid="stCheckbox"] p,.stApp [data-testid="stToggle"] p{color:var(--indigo)!important}
 .stApp [data-testid="stSidebar"] [data-testid="stExpander"] summary,.stApp [data-testid="stSidebar"] [data-testid="stExpander"] summary *{color:var(--indigo)!important}
 .stApp [data-testid="stImage"] img{border-radius:12px}
+/* planning calendar */
+.sg-cal-month{font-family:'Abril Fatface',serif;font-size:28px;color:var(--indigo);text-align:center;line-height:1}
+.st-key-calendar{background:#fff;border:1px solid rgba(20,24,82,.06);border-radius:18px;padding:16px!important;
+  box-shadow:0 1px 2px rgba(20,24,82,.04),0 8px 24px rgba(20,24,82,.06);margin-bottom:16px}
+.sg-cal-head,.sg-cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.sg-cal-head div{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:0 6px 6px}
+.sg-cal-day{min-height:96px;border-radius:10px;background:#FBF7F0;padding:6px;display:flex;flex-direction:column;gap:4px;overflow:hidden}
+.sg-cal-day .n{font-size:12.5px;font-weight:700;color:var(--indigo)}
+.sg-cal-day.other{opacity:.38}
+.sg-cal-day.past{background:#F6F1E8}
+.sg-cal-day.today{box-shadow:inset 0 0 0 2px var(--coral)}
+.sg-cal-day.today .n{color:var(--coral)}
+.sg-cal-item{font-size:12px;line-height:1.25;border-radius:7px;padding:4px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sg-cal-item b{font-weight:700;margin-right:2px}
+.sg-cal-free{font-size:11.5px;color:var(--muted);border:1px dashed rgba(20,24,82,.28);border-radius:7px;padding:3px 6px}
+.sg-cal-legend{font-size:12px;color:var(--muted);margin-top:10px;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}
+.sg-cal-legend span{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.sg-cal-legend span.free{border:1px dashed rgba(20,24,82,.4)}
+@media (max-width: 900px){
+  .sg-cal-head,.sg-cal-grid{gap:3px}
+  .sg-cal-day{min-height:58px;padding:3px}
+  .sg-cal-item{font-size:0;padding:0;height:8px;border-radius:4px}
+  .sg-cal-item b{display:none}
+  .sg-cal-free{font-size:0;padding:0;height:8px;border-radius:4px}
+  .sg-cal-head div{font-size:10px;padding:0 2px 4px}
+  .st-key-plan_nav [data-testid="stHorizontalBlock"]{flex-wrap:wrap!important;gap:.4rem!important}
+  .st-key-plan_nav [data-testid="stColumn"]{min-width:0!important;width:auto!important;flex:0 0 auto!important}
+  .st-key-plan_nav [data-testid="stColumn"]:nth-child(2){flex:1 1 0!important}
+  .st-key-plan_nav [data-testid="stColumn"]:nth-child(5){flex:1 1 100%!important}
+  .sg-cal-month{font-size:22px}
+}
 .stApp pre,.stApp code{background:#FBF7F0!important;color:var(--indigo)!important}
 /* tabs inside one video: a segmented control (last, so it wins over the general button look) */
 .st-key-vtabs{margin:-6px 0 18px}

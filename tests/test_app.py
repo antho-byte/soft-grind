@@ -64,8 +64,8 @@ def wait(cond, secs=90):
 def test_every_page_and_tab_loads_and_old_step_names_still_work():
     home()
     at = open_app()
-    assert [b.label for b in at.sidebar.button] == ["videos", "images", "settings"]
-    for key, want in (("menu_library", "the images."), ("menu_settings", "settings."), ("menu_projects", "your videos.")):
+    assert [b.label for b in at.sidebar.button] == ["videos", "planning", "images", "settings"]
+    for key, want in (("menu_planning", "planning."), ("menu_library", "the images."), ("menu_settings", "settings."), ("menu_projects", "your videos.")):
         click(at, key, sidebar=True); assert title(at).startswith(want[:-1])
     click(at, label="step by step")
     assert at.session_state["step"] == "music" and [b.label for b in at.button if b.key and b.key.startswith("tab_")] == ["music", "cover", "video"]
@@ -234,3 +234,23 @@ def test_every_card_has_an_open_button_under_its_next_step():
     keys = [b.key for b in at.button if b.key in ("next_mix-001", "open_mix-001")]
     assert keys == ["next_mix-001", "open_mix-001"]                                  # next step first, open below it
     click(at, "open_mix-001"); assert at.session_state["project"] == "mix-001" and at.session_state["step"] != "projects"
+
+
+def test_planning_page_shows_planned_videos_and_plans_a_free_slot():
+    settings, projects = home()
+    from soft_grind import planning
+    importlib.reload(planning)
+    root = settings.projects_dir()
+    soon = planning.free_slots([], 2)
+    for n, q, sched in (("mix-001", "night shift.", soon[0].strftime("%Y-%m-%d %H:%M")), ("mix-002", "slow sunday.", "")):
+        p = root / n; (p / "tracks").mkdir(parents=True); (p / "tracks" / "01 - a.mp3").write_bytes(b"0")
+        projects.set_meta(p, quote=q, schedule=sched, title=f"{q} title", description="d", tags="lofi")
+        (p / "upload.txt").write_text("old", encoding="utf-8")
+    at = open_app("planning"); assert not at.exception
+    page = " ".join(m.value for m in at.markdown)
+    assert "night shift." in page and "free · 15:00" in page and "not planned yet** · 1" in page
+    click(at, "plan_set_mix-002")
+    m = projects.meta(root / "mix-002"); assert planning.parse(m["schedule"]) == soon[1]   # the first slot that was still free
+    assert soon[1].strftime("%Y-%m-%d %H:%M") in (root / "mix-002" / "upload.txt").read_text()
+    click(at, "plan_next"); click(at, "plan_prev"); click(at, "plan_open_mix-001")
+    assert at.session_state["project"] == "mix-001"

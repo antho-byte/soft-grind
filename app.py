@@ -1,4 +1,5 @@
 """soft grind. studio: Suno music -> playlist -> thumbnail -> YouTube metadata."""
+import datetime as dt
 import html
 import io
 import json
@@ -10,7 +11,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import youtube, ai, brand, errors, fixes, headlines, imagegen, library, metadata, names, playlist, projects, health, notify, security, settings, texts, theme, thumbnail as T, video
+from soft_grind import planning, youtube, ai, brand, errors, fixes, headlines, imagegen, library, metadata, names, playlist, projects, health, notify, security, settings, texts, theme, thumbnail as T, video
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
@@ -34,11 +35,12 @@ if not security.password_hash() and str(st.get_option("server.address") or "") n
 PROJECTS = settings.projects_dir()
 SAVED = settings.load_keys()
 
-MENU = [("projects", "videos"), ("library", "images"), ("settings", "settings")]            # the whole app
+MENU = [("projects", "videos"), ("planning", "planning"), ("library", "images"), ("settings", "settings")]            # the whole app
 TABS = [("music", "music"), ("thumbnail", "cover"), ("video", "video")]                         # inside one video
 VIDEO_STEPS = {"music", "thumbnail", "video"}
 TITLES = {
     "projects": ("your videos.", "every video you made, with its cover. open one to keep going."),
+    "planning": ("planning.", "which video goes out on which day. free upload slots: monday, wednesday and friday at 15:00."),
     "library": ("the images.", "your folder of images: let the app look at them, then match them to your videos."),
     "settings": ("settings.", "keys, folders, security, and a check that everything is ready."),
     "music": ("make the music.", "pick a sound, press generate, get instrumental tracks. check and rename them below."),
@@ -340,7 +342,7 @@ tracks = st.session_state["tracks"]
 imgs_dir = pdir / "images"
 
 topnav_slot = st.container(key="topnav")                  # the sidebar is hidden behind a button on phones, so the menu is repeated here
-crumb = {"projects": "all videos", "library": "images", "settings": "settings"}.get(step, f"videos › {name}")
+crumb = {"projects": "all videos", "planning": "planning", "library": "images", "settings": "settings"}.get(step, f"videos › {name}")
 theme.page_title(crumb, *TITLES[step])
 tabs_slot = st.container(key="vtabs") if step in VIDEO_STEPS else None
 if st.session_state.get("_last_view") != (step, name):                    # a new page: start at the top, not where the last one was scrolled
@@ -1370,6 +1372,102 @@ if step == "video":
             st.caption("Make the video first (left). Then it can go to YouTube from here.")
 
 
+
+if step == "planning":
+    import calendar as _cal
+    items = projects.list_projects(PROJECTS)
+    today = dt.date.today()
+    st.session_state.setdefault("_plan_month", (today.year, today.month))
+    py, pm = st.session_state["_plan_month"]
+    plan = planning.by_day(items)
+    PCOL = {"scheduled": ("#1E2050", "#FFFFFF"), "on youtube": ("#1E2050", "#FFFFFF"), "ready": ("#DDF1E6", "#1F5B43"),
+            "uploading": ("#E7E5FF", "#3A3790"), "in the queue": ("#E7E5FF", "#3A3790")}
+
+    nav = st.container(key="plan_nav")
+    n1, n2, n3, n4, n5 = nav.columns([0.5, 2.2, 0.5, 0.8, 2.6], vertical_alignment="center")
+    if n1.button("‹", key="plan_prev", width="stretch", help="previous month"):
+        st.session_state["_plan_month"] = planning.shift_month(py, pm, -1); st.rerun()
+    n2.markdown(f'<div class="sg-cal-month">{_cal.month_name[pm].lower()} {py}</div>', unsafe_allow_html=True)
+    if n3.button("›", key="plan_next", width="stretch", help="next month"):
+        st.session_state["_plan_month"] = planning.shift_month(py, pm, 1); st.rerun()
+    if n4.button("today", key="plan_today", type="tertiary", width="stretch"):
+        st.session_state["_plan_month"] = (today.year, today.month); st.rerun()
+    view = n5.segmented_control("view", ["month", "list"], default="month", key="plan_view", required=True,
+                                label_visibility="collapsed") or "month"
+    weeks = planning.month_weeks(py, pm)
+    in_month = [d for w in weeks for d in w if d.month == pm]
+    n_planned = sum(len(plan.get(d, [])) for d in in_month)
+    n_free = sum(1 for d in in_month if planning.is_free_slot(d, plan))
+    st.caption(f"this month: {n_planned} video{'s' if n_planned != 1 else ''} planned · {n_free} free slot{'s' if n_free != 1 else ''}")
+
+    def chip(v):
+        bg, fg = PCOL.get(v["stage"], ("#FFF0D9", "#7A5420"))         # not finished yet: amber, so it stands out
+        tip = html.escape(f'{v["name"]} · {v["stage"]}')
+        return (f'<div class="sg-cal-item" style="background:{bg};color:{fg}" title="{tip}">'
+                f'<b>{v["when"]:%H:%M}</b> {html.escape(v["quote"] or v["name"])}</div>')
+
+    if view == "month":
+        with st.container(key="calendar"):
+            st.markdown('<div class="sg-cal-head">' + "".join(f"<div>{d}</div>" for d in ("mon", "tue", "wed", "thu", "fri", "sat", "sun"))
+                        + "</div>", unsafe_allow_html=True)
+            cells = []
+            for week in weeks:
+                for d in week:
+                    cls = "sg-cal-day" + (" other" if d.month != pm else "") + (" today" if d == today else "") + (" past" if d < today else "")
+                    body = "".join(chip(v) for v in plan.get(d, []))
+                    if not body and planning.is_free_slot(d, plan):
+                        body = '<div class="sg-cal-free">free · 15:00</div>'
+                    cells.append(f'<div class="{cls}"><div class="n">{d.day}</div>{body}</div>')
+            st.markdown('<div class="sg-cal-grid">' + "".join(cells) + "</div>", unsafe_allow_html=True)
+            st.markdown('<div class="sg-cal-legend"><span style="background:#1E2050"></span>on youtube '
+                        '<span style="background:#DDF1E6"></span>ready to upload <span style="background:#FFF0D9"></span>not finished yet '
+                        '<span class="free"></span>free slot</div>', unsafe_allow_html=True)
+
+    # the videos of this month (month view) or everything coming up (list view), each with open
+    if view == "month":
+        rows = [v for d in sorted(plan) if d.year == py and d.month == pm for v in plan[d]]
+        head = "planned this month"
+    else:
+        rows = [v for d in sorted(plan) if d >= today for v in plan[d]]
+        head = "coming up"
+    with st.container(key="card_plan_list"):
+        st.markdown(f"**{head}**")
+        if not rows:
+            st.caption("Nothing planned here yet.")
+        for v in rows:
+            r1, r2, r3, r4 = st.columns([1.3, 2.6, 1.3, 0.9], vertical_alignment="center")
+            r1.markdown(f'<span class="sg-proj-meta"><b>{v["when"]:%a %d %b}</b> · {v["when"]:%H:%M}</span>'.lower(), unsafe_allow_html=True)
+            bg, fg = PCOL.get(v["stage"], ("#FFF0D9", "#7A5420"))
+            r2.markdown(f'**{html.escape(v["quote"] or v["name"])}** <span class="sg-proj-meta">{html.escape(v["name"])}</span>',
+                        unsafe_allow_html=True)
+            r3.markdown(f'<span class="sg-pill" style="background:{bg};color:{fg}">{v["stage"]}</span>', unsafe_allow_html=True)
+            if r4.button("open", key=f"plan_open_{v['name']}", width="stretch"):
+                open_project(v["name"], v["stage"]); st.rerun()
+
+    # videos without a date: give each one a free slot in two clicks
+    todo = planning.unplanned(items)
+    with st.container(key="card_plan_todo"):
+        st.markdown(f"**not planned yet** · {len(todo)}")
+        if not todo:
+            st.caption("Every video has a date.")
+        else:
+            st.caption("Pick a free slot for a video. Videos already on YouTube keep the date YouTube has.")
+            slots = planning.free_slots(items, 10)
+            for k, v in enumerate(todo):
+                u1, u2, u3, u4 = st.columns([2.4, 1.2, 1.8, 1], vertical_alignment="center")
+                u1.markdown(f'**{html.escape(v["quote"] or v["name"])}** <span class="sg-proj-meta">{html.escape(v["name"])}</span>',
+                            unsafe_allow_html=True)
+                bg, fg = PCOL.get(v["stage"], ("#FFF0D9", "#7A5420"))
+                u2.markdown(f'<span class="sg-pill" style="background:{bg};color:{fg}">{v["stage"]}</span>', unsafe_allow_html=True)
+                choice = u3.selectbox("slot", slots, index=min(k, len(slots) - 1), key=f"plan_slot_{v['name']}",
+                                      format_func=lambda w: w.strftime("%a %d %b · %H:%M").lower(), label_visibility="collapsed")
+                if u4.button("plan", key=f"plan_set_{v['name']}", type="primary", width="stretch"):
+                    try:
+                        planning.assign(v["path"], choice)
+                        st.toast(f"{v['name']} goes out {choice:%a %d %b %H:%M}".lower()); st.rerun()
+                    except RuntimeError as e:
+                        st.error(str(e))
+
 # ---------------- menu, tabs and phone navigation: filled last so they show fresh status ----------------
 proj_count = len(projects.project_dirs(PROJECTS))
 _lf = library.scan(settings.library_dir())
@@ -1382,7 +1480,10 @@ cover_done = (pdir / "thumbnail.png").exists()
 yt_done = bool(projects.meta(pdir).get("title")) and (pdir / "upload.txt").exists()
 video_done = (pdir / "video.mp4").exists()
 n_tracks_now = len(projects.audio_files(tracks_dir))
+_upcoming = sorted(w for w in (planning.parse(p["schedule"]) for p in projects.list_projects(PROJECTS)) if w and w > dt.datetime.now())
+plan_n, plan_next = len(_upcoming), (_upcoming[0].strftime("%a %d %b").lower() if _upcoming else "")
 MENU_SUB = {"projects": f"{proj_count} video{'s' if proj_count != 1 else ''}" if proj_count else "start your first video",
+            "planning": (f"{plan_n} planned · next {plan_next}" if plan_n else "nothing planned yet"),
             "library": f"{lib_looked} of {len(_lf)} looked at" if _lf else "choose your folder",
             "settings": f"{keys_set} of 3 keys set"}
 with menu_slot:
@@ -1391,7 +1492,7 @@ with menu_slot:
         st.button(label, key=f"menu_{sid}", type="primary" if active else "secondary", width="stretch", on_click=go, args=(sid,))
         st.markdown(f'<div class="sg-step-sub">{MENU_SUB[sid]}</div>', unsafe_allow_html=True)
 with topnav_slot:                                                                           # visible on phones only (CSS)
-    for col, (sid, label) in zip(st.columns(3), MENU):
+    for col, (sid, label) in zip(st.columns(len(MENU)), MENU):
         col.button(label, key=f"topnav_{sid}", type="primary" if (step == sid or (sid == "projects" and step in VIDEO_STEPS)) else "secondary",
                    width="stretch", on_click=go, args=(sid,))
 if tabs_slot is not None:

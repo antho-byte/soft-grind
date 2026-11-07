@@ -143,3 +143,21 @@ def test_new_videos_get_a_fresh_mix_of_scenes(tmp_path, monkeypatch):
         topics.append(t)
     assert not set(topics[1]) & set(topics[0])                       # 12 scenes: the second video avoids all five of the first
     assert len({tuple(sorted(t)) for t in topics}) == 4               # never the same mix twice in a row
+
+
+def test_planning_slots_and_unplanned(tmp_path, monkeypatch):
+    import datetime as dt
+    from soft_grind import planning, projects
+    monkeypatch.setenv("SOFTGRIND_HOME", str(tmp_path / "home"))
+    now = dt.datetime(2026, 11, 7, 12, 0)                                     # a saturday
+    items = [{"schedule": "2026-11-09 15:00"}, {"schedule": ""}]
+    slots = planning.free_slots(items, 3, now)
+    assert [s.strftime("%a %d") for s in slots] == ["Wed 11", "Fri 13", "Mon 16"]       # monday 9th is taken
+    assert planning.unplanned([{"schedule": "2026-11-01 15:00"}, {"schedule": "2026-11-20 15:00"}, {"schedule": "", "youtube_id": "x"}], now) \
+        == [{"schedule": "2026-11-01 15:00"}]                                            # past date counts as unplanned; youtube ones never
+    assert planning.shift_month(2026, 12, 1) == (2027, 1) and planning.shift_month(2026, 1, -1) == (2025, 12)
+    weeks = planning.month_weeks(2026, 11); assert weeks[0][0].weekday() == 0 and any(d.day == 30 for d in weeks[-1])
+    p = tmp_path / "v"; p.mkdir(); projects.set_meta(p, youtube_id="abc")
+    import pytest
+    with pytest.raises(RuntimeError):
+        planning.assign(p, slots[0])                                          # a video on youtube keeps youtube's date

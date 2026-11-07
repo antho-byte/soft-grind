@@ -11,7 +11,8 @@ export ACEDATACLOUD_API_TOKEN=...   # optional; without it the app runs in mock 
 streamlit run app.py
 ```
 
-Pages: **videos** (one card per mix; new video step by step or fully automatic), **images** (your picture library),
+Pages: **videos** (one card per mix; new video step by step or fully automatic), **planning** (month calendar of
+what goes out when, free Mon/Wed/Fri slots, plan an undated video in two clicks), **images** (your picture library),
 **settings** (keys, phone messages, password, setup check). Each video has three tabs: **music**, **cover**, **video**.
 
 - **automatic mode** makes the whole video in the background: music, picture, headline, thumbnail, video, text.
