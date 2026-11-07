@@ -52,7 +52,9 @@ def test_preview_is_small_and_made_with_every_render():
     assert 4 < video.probe(d / "p2.mp4")["duration"] < 6                                                  # cut to the asked length
 
 
-def test_film_look_renders_with_every_effect_and_keeps_the_audio_right():
+def test_film_look_renders_with_every_effect_and_keeps_the_audio_right(monkeypatch):
+    from soft_grind import settings
+    monkeypatch.setattr(settings, "DATA_DIR", Path(tempfile.mkdtemp()))
     d, tracks = _setup(n=2, secs=6)
     durs = [playlist.audio_duration(t) for t in tracks]
     look = {"grain": 2, "vignette": True, "flicker": True, "dust": True, "scratches": True, "tint": "warm", "fps": 12}
@@ -89,10 +91,30 @@ def test_film_look_per_video_choice_beats_the_default(monkeypatch):
     assert projects.film_look(p)["vignette"] is True
 
 
-def test_light_film_adds_no_colour_cast_and_no_lift(tmp_path):
+def test_light_film_adds_no_colour_cast_and_no_lift(tmp_path, monkeypatch):
     import numpy as np
+    from soft_grind import settings
+    monkeypatch.setattr(settings, "DATA_DIR", tmp_path / "data")
     still = tmp_path / "s.png"; Image.new("RGB", (1920, 1080), (200, 120, 90)).save(still)
     clip = video.look_preview(still, tmp_path / "c.mp4", video.PRESETS["light film"], 2)
     subprocess.run([video.ffmpeg_exe(), "-v", "error", "-y", "-i", str(clip), "-frames:v", "1", str(tmp_path / "f.png")], check=True)
     a = np.asarray(Image.open(still).convert("RGB")).astype(int); b = np.asarray(Image.open(tmp_path / "f.png").convert("RGB")).astype(int)
     assert np.abs((b - a).mean(axis=(0, 1))).max() < 3          # the overlays must not change the picture's colour or brightness
+
+
+def test_dust_is_random_not_a_pattern(tmp_path, monkeypatch):
+    """The first version drew its specks in dotted lines. Dust must land in different places every frame, over the whole picture."""
+    import numpy as np
+    from soft_grind import settings
+    monkeypatch.setattr(settings, "DATA_DIR", tmp_path / "data")
+    tex = Image.open(video.dust_texture()); assert tex.size == (3840, 2160) and np.asarray(tex).max() > 100
+    still = tmp_path / "s.png"; Image.new("RGB", (1920, 1080), (20, 20, 20)).save(still)
+    clip = video.look_preview(still, tmp_path / "c.mp4", {"dust": True, "fps": 15}, 3)
+    r = subprocess.run([video.ffmpeg_exe(), "-v", "error", "-i", str(clip), "-vf", "scale=480:270:flags=area,format=gray",
+                        "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True)
+    fr = np.frombuffer(r.stdout, dtype=np.uint8).reshape(-1, 270, 480).astype(int)
+    marks = [f > f.mean() + 14 for f in fr]
+    assert all(5 < m.sum() < 120 for m in marks)                                   # a few marks per frame, never none, never a snowstorm
+    assert (marks[10] & marks[11]).sum() <= 0.1 * marks[10].sum()                  # not the same places in the next frame
+    rows = np.sum(marks, axis=0).sum(axis=1)                                       # marks per picture row: no single row dominates
+    assert rows.max() < 0.08 * rows.sum()

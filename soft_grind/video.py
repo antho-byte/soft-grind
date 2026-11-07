@@ -109,13 +109,46 @@ def normalize_look(look: dict | None) -> dict | None:
 _BLACK0 = "lutyuv=y='clip((val-16)*255/219,0,255)'"        # an overlay's black must add nothing (video-range black is 16, not 0)
 
 
-def _hash(salt: str, group: int = 3) -> str:
+def dust_texture() -> Path:
+    """A 3840x2160 black picture with random dust: mostly tiny specks, some soft blobs, a few short hairs. Made once, then reused."""
+    from . import settings
+    path = settings.DATA_DIR / "cache" / "dust-v3.png"
+    if path.exists():
+        return path
+    import numpy as np
+    from PIL import Image, ImageChops, ImageDraw, ImageFilter
+    rng = np.random.default_rng(20240607)
+    W, H = 3840, 2160
+    small, big = Image.new("L", (W, H), 0), Image.new("L", (W, H), 0)
+    d, db = ImageDraw.Draw(small), ImageDraw.Draw(big)
+    for _ in range(100):                                          # specks of different size and brightness
+        x, y = rng.uniform(0, W), rng.uniform(0, H)
+        r = float(rng.choice([0.8, 1.2, 1.8, 2.6], p=[0.45, 0.30, 0.18, 0.07]))
+        d.ellipse([x - r, y - r, x + r, y + r], fill=int(rng.uniform(80, 255)))
+    for _ in range(8):                                           # bigger, fainter, soft blobs
+        x, y, r = rng.uniform(0, W), rng.uniform(0, H), rng.uniform(4, 9)
+        db.ellipse([x - r, y - r, x + r, y + r], fill=int(rng.uniform(45, 110)))
+    for _ in range(8):                                           # short wandering hairs
+        x, y, ang = rng.uniform(0, W), rng.uniform(0, H), rng.uniform(0, 6.28)
+        pts = [(x, y)]
+        for _ in range(int(rng.integers(4, 9))):
+            ang += rng.normal(0, 0.5)
+            x += float(np.cos(ang)) * 4; y += float(np.sin(ang)) * 4
+            pts.append((x, y))
+        d.line(pts, fill=int(rng.uniform(70, 150)), width=1)
+    img = ImageChops.lighter(small.filter(ImageFilter.GaussianBlur(0.6)), big.filter(ImageFilter.GaussianBlur(2.5)))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(path)
+    return path
+
+
+def _hash(salt: str, group: int = 3, var: str = "N") -> str:
     """A repeatable pseudo-random number 0..1 that changes every `group` frames (a scratch lives for a few frames)."""
-    return f"mod(abs(sin(floor(N/{group})*{salt})*43758.5453),1)"
+    return f"mod(abs(sin(floor({var}/{group})*{salt})*43758.5453),1)"
 
 
-def look_graph(look: dict) -> str:
-    """The video part of the filter graph: [0:v] -> [v]."""
+def look_graph(look: dict, dust_input: int = 1) -> str:
+    """The video part of the filter graph: [0:v] -> [v]. The dust picture (see dust_texture) is input number `dust_input`."""
     fps = look["fps"]
     steps = ["scale=1920:1080:force_original_aspect_ratio=decrease", "pad=1920:1080:(ow-iw)/2:(oh-ih)/2", "format=yuv420p"]
     if TINTS[look["tint"]]:
@@ -135,11 +168,10 @@ def look_graph(look: dict) -> str:
         last = f"l{n}"
 
     if look["dust"]:
-        # small specks (drawn small, scaled up, so they are soft) and now and then a bigger, fainter blob; each lasts one frame
-        overlay(f"color=c=black:s=480x270:r={fps},format=gray,geq=lum='if(gt(random(1),0.9997),255,0)',"
-                f"scale=1920:1080:flags=bicubic,format=yuv420p,{_BLACK0}", 0.35)
-        overlay(f"color=c=black:s=192x108:r={fps},format=gray,geq=lum='if(gt(random(1),0.99993),255,0)',"
-                f"scale=1920:1080:flags=bicubic,gblur=sigma=3,format=yuv420p,{_BLACK0}", 0.5)
+        # a big picture of dust (real random positions, drawn once) of which a different random window is shown every frame
+        w = lambda salt: f"floor({_hash(salt, 1, 'n')}*1920)"
+        h = lambda salt: f"floor({_hash(salt, 1, 'n')}*1080)"
+        overlay(f"[{dust_input}:v]crop=1920:1080:x='{w('12.9898')}':y='{h('78.233')}',format=gray,format=yuv420p,{_BLACK0}", 0.45)
     if look["scratches"]:
         # thin vertical lines that appear for a few frames at a random place, now and then. One row of pixels, stretched to full height.
         def line(salt_x: str, salt_p: str, prob: float) -> str:
@@ -199,7 +231,9 @@ def render_video(tracks: list[Path], still: Path, out: Path, durations: list[flo
     for p in tracks:
         cmd += ["-i", str(p)]
     if look:                                                  # the picture goes through the graph too
-        cmd += ["-filter_complex", look_graph(look) + ";" + graph, "-map", "[v]", "-map", "[out]", *enc]
+        if look["dust"]:                                      # the dust picture is the last input, after the tracks
+            cmd += ["-loop", "1", "-framerate", str(look["fps"]), "-i", str(dust_texture())]
+        cmd += ["-filter_complex", look_graph(look, len(tracks) + 1) + ";" + graph, "-map", "[v]", "-map", "[out]", *enc]
     else:
         cmd += ["-filter_complex", graph, "-map", "0:v", "-map", "[out]",
                 "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p", *enc]
@@ -223,7 +257,8 @@ def look_preview(still: Path, out: Path, look: dict, seconds: int = 20) -> Path:
     out = Path(out)
     partial = out.with_name(out.stem + ".partial.mp4")
     in_args, enc = _video_args(look)
-    _run([ffmpeg_exe(), "-hide_banner", "-nostats", "-y", "-loop", "1", *in_args, "-i", str(still),
+    extra = ["-loop", "1", "-framerate", str(look["fps"]), "-i", str(dust_texture())] if look["dust"] else []
+    _run([ffmpeg_exe(), "-hide_banner", "-nostats", "-y", "-loop", "1", *in_args, "-i", str(still), *extra,
           "-filter_complex", look_graph(look), "-map", "[v]", *enc, "-t", str(seconds), "-an", "-movflags", "+faststart",
           "-f", "mp4", str(partial)], 0, None)
     os.replace(partial, out)
