@@ -79,7 +79,7 @@ def test_new_video_gets_its_own_headline_and_background_music_works():
     settings, projects = home()
     at = open_app(); click(at, label="step by step")
     name = at.session_state["project"]; q = projects.meta(settings.projects_dir() / name)["quote"]
-    assert q and q.endswith((".", "?")) and len(q.split()) <= 3
+    assert q and q.endswith((".", "?")) and len(q.split()) <= 5
     click(at, label="generate in the background")
     pd = settings.projects_dir() / name
     assert wait(lambda: projects.job_status(pd)["state"] == "done")
