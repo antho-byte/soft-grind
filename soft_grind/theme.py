@@ -97,6 +97,11 @@ h1,h2,h3{font-family:'Abril Fatface',serif!important;font-weight:400!important;c
 .stApp button[data-testid="stBaseButton-primary"] p,.stApp a[data-testid="stBaseLinkButton-primary"] p{color:#fff!important}
 .stApp button[data-testid="stBaseButton-secondary"] p,.stApp a[data-testid="stBaseLinkButton-secondary"] p{color:var(--indigo)!important}
 .stApp button:disabled{opacity:.45}
+/* menus open outside the page area, so they need their own copy of the button look */
+[data-testid="stPopoverBody"] button[data-testid="stBaseButton-primary"]{border-radius:10px!important;border:0!important;background:#141852!important;color:#fff!important;font-weight:600!important}
+[data-testid="stPopoverBody"] button[data-testid="stBaseButton-primary"] p{color:#fff!important}
+[data-testid="stPopoverBody"] button[data-testid="stBaseButton-secondary"]{border-radius:10px!important;border:1px solid rgba(20,24,82,.14)!important;background:#fff!important}
+[data-testid="stPopoverBody"] button[data-testid="stBaseButton-secondary"] p{color:#141852!important;font-weight:600!important}
 /* filter chips (segmented control) */
 .stApp [data-testid="stButtonGroup"]>div,.stApp [data-testid="stButtonGroup"] [role="radiogroup"]{flex-wrap:wrap!important;row-gap:6px}
 .stApp [data-testid="stButtonGroup"] button[data-variant="segmented_control"]{border-radius:999px!important;border:1px solid rgba(20,24,82,.12)!important;background:#fff!important;margin-right:6px!important;padding:6px 14px!important}
