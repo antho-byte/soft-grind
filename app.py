@@ -11,7 +11,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image
 
-from soft_grind import planning, youtube, ai, brand, errors, fixes, headlines, imagegen, library, metadata, names, playlist, projects, health, notify, security, settings, texts, theme, thumbnail as T, video
+from soft_grind import animate, planning, shorts, youtube, ai, brand, errors, fixes, headlines, imagegen, library, metadata, names, playlist, projects, health, notify, security, settings, texts, theme, thumbnail as T, video
 
 st.set_page_config(page_title="soft grind. studio", page_icon="🌴", layout="wide")
 theme.inject()
@@ -216,6 +216,98 @@ def film_look_ui(pdir_, vname):
     if st.button("use this for all new videos", key=f"look_default_{vname}", type="tertiary"):
         settings._write_settings(film_look_default=dict(cur))
         st.toast("saved as your default")
+
+
+def shorts_ui(pdir_, vname):
+    """Vertical Shorts from this video: background motion (free zoom, your own loop clip, or an AI loop), then make 2-3 Shorts."""
+    st.markdown("**shorts**")
+    has_pic = shorts.source_picture(pdir_) is not None
+    loop_path = pdir_ / shorts.LOOP
+    a_st = animate.status(pdir_)
+
+    def anim_body():
+        s_ = animate.status(pdir_)
+        if s_["running"]:
+            st.info(f"animating the picture with AI · {s_['message']} (usually 1 to 5 minutes)")
+        elif s_["state"] == "failed":
+            show_error(s_["error"], prefix="The picture could not be animated. ")
+    st.fragment(run_every=5 if a_st["running"] else None)(anim_body)()
+
+    motion = st.segmented_control("background", ["slow zoom", "animated loop"], key=f"sh_motion_{vname}", required=True,
+                                  default="animated loop" if loop_path.exists() else "slow zoom") or "slow zoom"
+    if motion == "slow zoom":
+        st.caption("Free: the cover picture slowly moves closer. Instant, no AI.")
+    else:
+        if loop_path.exists():
+            c_v, c_t = st.columns([1, 1.6])
+            c_v.video(str(loop_path), loop=True, autoplay=True, muted=True)
+            m_ = projects.meta(pdir_)
+            c_t.caption(f"this video's loop · {m_.get('loop_model') or 'your own clip'}"
+                        + (f" · {m_['loop_made']}" if m_.get("loop_made") else ""))
+            if c_t.button("remove this loop", key=f"sh_rmloop_{vname}", type="tertiary"):
+                loop_path.unlink(missing_ok=True); projects.set_meta(pdir_, loop_model="", loop_made=""); st.rerun()
+        up = st.file_uploader("drop in a loop clip (for example from Midjourney: Animate → Loop)", type=["mp4", "mov", "webm"],
+                              key=f"sh_up_{vname}")
+        if up is not None and st.button("use this clip", key=f"sh_useclip_{vname}"):
+            loop_path.write_bytes(up.getvalue()); projects.set_meta(pdir_, loop_model="your own clip", loop_made=time.strftime("%Y-%m-%d %H:%M"))
+            st.rerun()
+        with st.expander("or let the AI animate the picture"):
+            model = st.selectbox("video model", list(animate.MODELS), key=f"sh_model_{vname}")
+            ep0, tpl0, price, loops = animate.MODELS[model]
+            prompt = st.text_area("what should move", animate.DEFAULT_PROMPT, height=100, key=f"sh_prompt_{vname}")
+            with st.expander("advanced: the exact request (edit if the service complains)"):
+                ep = st.text_input("endpoint", ep0, key=f"sh_ep_{vname}_{model}")
+                body = st.text_area("request (JSON)", json.dumps(tpl0, indent=2), height=170, key=f"sh_tpl_{vname}_{model}")
+            st.caption((f"≈ ${price:.2f} per clip at the cheapest top-up tier" if price else "price: see your AceDataCloud console")
+                       + (" · loops by itself" if loops else " · not a perfect loop: tick 'play forwards then backwards' below")
+                       + (" · practice mode: a free fake clip" if img_mock else " · uses your image key"))
+            if st.button("animate the picture", type="primary", key=f"sh_animate_{vname}", disabled=not has_pic or a_st["running"]
+                         or not (img_token or img_mock)):
+                try:
+                    animate.start(pdir_, model, ep, json.loads(body), prompt, img_token, img_mock)
+                    st.rerun()
+                except json.JSONDecodeError as e:
+                    st.error(f"The request JSON is not valid: {e}")
+                except RuntimeError as e:
+                    st.error(str(e))
+    s1, s2, s3 = st.columns(3)
+    n_sh = s1.select_slider("how many", [1, 2, 3], 3, key=f"sh_n_{vname}")
+    length = s2.select_slider("seconds", [15, 20, 30, 45, 60], 30, key=f"sh_len_{vname}")
+    dust = s3.toggle("film dust", value=bool(projects.film_look(pdir_)), key=f"sh_dust_{vname}")
+    ping = st.checkbox("play the loop forwards then backwards (for clips that do not loop by themselves)", key=f"sh_ping_{vname}",
+                       disabled=motion != "animated loop")
+    use_loop = motion == "animated loop" and loop_path.exists()
+    if motion == "animated loop" and not loop_path.exists():
+        st.caption("No loop clip yet: drop one in or let the AI make one, or switch to slow zoom.")
+
+    def run_body():
+        s_ = shorts.status(pdir_)
+        if s_["running"]:
+            st.progress(s_["progress"], text=f"making shorts · {s_['message']}")
+            return
+        if s_["state"] == "failed":
+            show_error(s_["error"], prefix="The shorts could not be made. ")
+        rows = shorts.listing(pdir_)
+        if rows:
+            cols = st.columns(len(rows))
+            for col, r in zip(cols, rows):
+                with col:
+                    st.video(str(shorts.folder(pdir_) / r["file"]))
+                    st.caption(f"{r['track']} · from {int(r['start'] // 60)}:{int(r['start'] % 60):02d}")
+                    st.download_button("download", data=(shorts.folder(pdir_) / r["file"]).read_bytes(), file_name=f"{vname}-{r['file']}",
+                                       mime="video/mp4", key=f"sh_dl_{vname}_{r['file']}", width="stretch", type="tertiary")
+            with st.expander("title and description for the shorts"):
+                st.code(rows[0]["title"], language=None)
+                st.code(rows[0]["description"], language=None)
+    st.fragment(run_every=3 if shorts.status(pdir_)["running"] else None)(run_body)()
+    if st.button("make the shorts" if not shorts.listing(pdir_) else "make the shorts again", type="primary", width="stretch",
+                 key=f"sh_make_{vname}", disabled=not has_pic or not tracks or shorts.status(pdir_)["running"]
+                 or (motion == "animated loop" and not use_loop)):
+        try:
+            shorts.start(pdir_, {"n": n_sh, "length": length, "motion": "loop" if use_loop else "zoom", "dust": dust, "pingpong": ping})
+            st.rerun()
+        except RuntimeError as e:
+            st.error(str(e))
 
 
 def yt_panel(pdir_):
@@ -568,6 +660,8 @@ if step == "projects":
         b_names = c1.selectbox("track names", names.STYLES, key="batch_names")
         ai_on = bool(ai_token and not ai_mock)
         b_improve = c2.checkbox("AI improves the music prompt", value=ai_on, disabled=not ai_on, key="batch_improve")
+        b_shorts = st.select_slider("shorts per video (vertical, 30 seconds, slow zoom)", [0, 1, 2, 3], 0, key="batch_shorts",
+                                    help="Made right after each video. Animated loops can be added later per video.")
         songs = B_LEN[b_len]
         credits = n_vid * (songs / 2 * brand.CREDITS["suno_request"] + (0.03 if ai_on else 0))
         db_ = {k: v for k, v in library.load_db().items() if v.get("analysis") and Path(k).exists()}
@@ -589,7 +683,7 @@ if step == "projects":
                                                                "model": brand.MODELS[0], "name_style": b_names, "mood_key": mood_key_,
                                                                "mock": mock, "improve_prompt": bool(b_improve and ai_on), "use_ai": ai_on,
                                                                "ai_model": ai_model, "crossfade": crossfade, "fade_in": 3.0, "fade_out": 6.0,
-                                                               "plan": True},
+                                                               "plan": True, "shorts": int(b_shorts)},
                                             token, ai_token if ai_on else "")
                 st.session_state["_batch_open"] = False
                 st.toast(f"started {len(made)} videos: {made[0]} to {made[-1]}")
@@ -1439,6 +1533,8 @@ if step == "video":
                                        file_name=f"{name}-thumbnail.png", mime="image/png", width="stretch", type="tertiary")
             with st.expander("tracklist"):
                 st.code(metadata.tracklist_text(tracks, crossfade) if tracks else "no tracks yet", language=None)
+        with st.container(key="card_shorts"):
+            shorts_ui(pdir, name)
 
     # ---- publish (right, top): filled last, so it sees the text that was just saved
     with publish_slot:

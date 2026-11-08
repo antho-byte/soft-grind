@@ -147,6 +147,15 @@ def run(job_path: str) -> None:
             (pdir / "upload.txt").write_text(metadata.upload_txt(fields["title"], fields["description"],
                                                                  [t.strip() for t in fields["tags"].split(",")], fields["pinned"], schedule),
                                              encoding="utf-8")
+        if spec.get("shorts"):                                    # a few vertical Shorts from the finished video
+            at(5, 0.9, "making the shorts")
+            from . import shorts
+            with RENDER_LOCK:
+                try:
+                    shorts.make_all(pdir, int(spec["shorts"]), 30.0, "loop" if (pdir / shorts.LOOP).exists() else "zoom",
+                                    dust=bool(projects.film_look(pdir)))
+                except Exception as e:                            # the video itself is fine: a failed Short never fails it
+                    projects.set_meta(pdir, shorts_error=str(e)[:300])
         save(state="done", step=n_steps, progress=1.0, message="ready to check", finished=time.time())
         if spec.get("upload"):
             try:

@@ -274,3 +274,22 @@ def test_batch_makes_several_whole_videos_each_with_its_own_headline_picture_and
     assert metas[0]["topic"] != metas[1]["topic"]                                                            # each its own scenes
     assert not any(projects.youtube_status(root / n)["state"] != "none" for n in names)                     # nothing uploaded
     at.run(); assert any("batch done" in m.value for m in at.markdown)
+
+
+def test_shorts_card_makes_shorts_from_the_video_page():
+    settings, projects = home()
+    from soft_grind import shorts
+    importlib.reload(shorts)
+    from soft_grind.suno import _write_tone
+    p = settings.projects_dir() / "mix-001"; (p / "tracks").mkdir(parents=True)
+    for k in range(2): _write_tone(p / "tracks" / f"0{k+1} - t{k}.wav", 25, 220 + 40 * k)
+    Image.new("RGB", (1920, 1080), (40, 50, 140)).save(p / "cover_source.png"); Image.new("RGB", (1920, 1080), (40, 50, 140)).save(p / "still.png")
+    projects.set_meta(p, quote="lamp on.")
+    at = open_app("video", "mix-001")
+    assert any(m.value == "**shorts**" for m in at.markdown)
+    [s for s in at.select_slider if s.key == "sh_n_mix-001"][0].set_value(1)
+    [s for s in at.select_slider if s.key == "sh_len_mix-001"][0].set_value(15); at.run()
+    click(at, "sh_make_mix-001")
+    assert wait(lambda: shorts.status(p)["state"] in ("done", "failed"), 120), shorts.status(p)
+    assert shorts.status(p)["state"] == "done" and len(shorts.listing(p)) == 1
+    at.run(); assert not at.exception and [b for b in at.button if b.key == "sh_make_mix-001"][0].label == "make the shorts again"
