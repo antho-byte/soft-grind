@@ -84,7 +84,15 @@ class AIClient:
             lines.append(f"your last attempt was rejected: {feedback}. Write it again and fix that.")
         return self.chat(TEXT_SYSTEM, "\n".join(lines), max_tokens=700, temperature=1.0)
 
-    def suggest_headlines(self, description: str, mood: str, scenes: list[str], used=()) -> tuple[list[str], float]:
+    def suggest_headlines(self, description: str, mood: str, scenes: list[str], used=(), options=None) -> tuple[list[str], float]:
+        """With `options` (the owner's list): the AI only chooses the ones that fit the image best, it never writes new ones."""
+        if options:
+            user = (f"Image: {description}\nMood: {mood}\nScenes: {', '.join(scenes) or 'any'}\n"
+                    "Headlines to choose from:\n" + "\n".join(options))
+            text, cost = self.chat(CHOOSE_SYSTEM, user, max_tokens=200, temperature=0.7)
+            allowed = {o.lower(): o for o in options}
+            picked = [allowed[h.lower()] for h in parse_headlines(text, used) if h.lower() in allowed]
+            return picked, cost
         user = (f"Image: {description}\nMood: {mood}\nScenes: {', '.join(scenes) or 'any'}\n"
                 f"Do not use these (already used): {'; '.join(list(used)[-40:]) or 'none'}")
         text, cost = self.chat(HEADLINE_SYSTEM, user, max_tokens=200, temperature=1.0)
@@ -103,6 +111,13 @@ HEADLINE_SYSTEM = (
     "channel for people who work and study. Rules: lowercase, 2 to 4 words, ends with a full stop or a question mark, warm and "
     "encouraging, never hustle-bro (no 'grind', 'hustle', 'crush it', 'rise'), no emoji, no quotes. "
     "The headline must feel like it belongs to the image. Reply with exactly 6 different options, one per line, no numbering."
+)
+
+
+CHOOSE_SYSTEM = (
+    "You pick headlines for YouTube thumbnails of soft grind, a calm instrumental city pop and lofi channel for people who work "
+    "and study. From the list you are given, choose the 6 headlines that fit the image and mood best, best first. Copy them "
+    "exactly as written, one per line, no numbering, no other text. Never write a headline that is not in the list."
 )
 
 

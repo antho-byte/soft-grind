@@ -16,6 +16,8 @@ what goes out when, free Mon/Wed/Fri slots, plan an undated video in two clicks)
 **settings** (keys, phone messages, password, setup check). Each video has three tabs: **music**, **cover**, **video**.
 
 - **automatic mode** makes the whole video in the background: music, picture, headline, thumbnail, video, text.
+- **batch** (new video → batch) makes 2–12 whole videos in one go, two at a time; each gets the next free upload slot. Nothing is uploaded.
+- **headlines** come from `soft_grind/headline_list.json` (the owner's 100 headlines, in five groups); the AI only chooses from it.
 - **phone messages** (settings): a free ntfy.sh topic pings your phone when a video is done or needs you.
 - **credits used** are tracked per video (estimates) and shown on the videos page.
 - **free up space** on a finished video deletes its songs and working images and keeps the video, thumbnail and upload text.

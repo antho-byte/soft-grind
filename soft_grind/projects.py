@@ -382,11 +382,70 @@ def start_auto(pdir: Path, spec: dict, suno_token: str = "", ai_token: str = "")
         raise RuntimeError("This video is already being made.")
     if meta(pdir).get("freed_tracks"):
         raise RuntimeError("The songs of this video were deleted to free up space: starting again would buy new music. Make a new video instead.")
+    prepare_auto(pdir, spec)
+    _spawn("soft_grind.auto", pdir, AUTO, {"SOFTGRIND_SUNO_TOKEN": suno_token, "SOFTGRIND_AI_TOKEN": ai_token})
+
+
+def prepare_auto(pdir: Path, spec: dict, message: str = "queued") -> None:
+    pdir = Path(pdir)
     (pdir / CANCEL).unlink(missing_ok=True)
     prev = read_json(pdir / AUTO)                                     # keep the list of paid requests across a resume
-    write_json(pdir / AUTO, {"state": "queued", "spec": spec, "step": 0, "progress": 0.0, "message": "queued", "updated": time.time(),
+    write_json(pdir / AUTO, {"state": "queued", "spec": spec, "step": 0, "progress": 0.0, "message": message, "updated": time.time(),
                              "task_ids": prev.get("task_ids", [])})
-    _spawn("soft_grind.auto", pdir, AUTO, {"SOFTGRIND_SUNO_TOKEN": suno_token, "SOFTGRIND_AI_TOKEN": ai_token})
+
+
+# ---------- batch: several whole videos in one go ----------
+BATCH_PARALLEL = 2                       # music for two videos at once; building the videos is one at a time
+
+
+def batch_file() -> Path:
+    from . import settings as _s
+    return _s.DATA_DIR / "batch.json"
+
+
+def batch_status() -> dict:
+    b = read_json(batch_file())
+    if not b:
+        return {"state": "none", "running": False, "items": [], "done": 0, "total": 0}
+    fresh = time.time() - b.get("updated", 0) < STALE_AFTER
+    state = b.get("state", "none")
+    if state in ("queued", "running") and not fresh:
+        state = "interrupted"
+    items = b.get("items", [])
+    finished = [i for i in items if auto_status(Path(i))["state"] in ("done", "failed", "needs_attention", "cancelled")]
+    return {**b, "state": state, "running": state in ("queued", "running"), "done": len(finished), "total": len(items),
+            "names": [Path(i).name for i in items]}
+
+
+def start_batch(root: Path, n: int, spec: dict, suno_token: str = "", ai_token: str = "") -> list[str]:
+    """Create n new videos and make them all in the background: each gets its own scenes, picture, headline and publish slot."""
+    if batch_status()["running"]:
+        raise RuntimeError("A batch is already running. Wait for it, or cancel it first.")
+    names = []
+    for _ in range(max(1, min(int(n), 50))):
+        nm = create_project(root)
+        pdir = Path(root) / nm
+        topic = meta(pdir).get("topic") or list(brand.SCENES[:4])
+        set_meta(pdir, mood=spec.get("mood_key", "calm"), style=spec.get("style", ""), batch=True)
+        prepare_auto(pdir, {**spec, "scenes": topic, "quiet": True, "upload": False}, "waiting in the batch")
+        names.append(nm)
+    bf = batch_file(); bf.parent.mkdir(parents=True, exist_ok=True)
+    write_json(bf, {"state": "queued", "items": [str(Path(root) / nm) for nm in names], "started": time.time(), "updated": time.time()})
+    _spawn("soft_grind.batch", bf.parent, bf.name, {"SOFTGRIND_SUNO_TOKEN": suno_token, "SOFTGRIND_AI_TOKEN": ai_token})
+    return names
+
+
+def cancel_batch() -> None:
+    """Stop the batch: videos that are halfway stop at the next safe point, the ones still waiting are not started."""
+    b = read_json(batch_file())
+    for i in b.get("items", []):
+        p = Path(i)
+        if auto_status(p)["state"] in ("queued", "running", "interrupted"):
+            cancel_job(p)
+            if read_json(p / AUTO).get("state") == "queued":
+                j = read_json(p / AUTO); j.update(state="cancelled", message="cancelled", updated=time.time()); write_json(p / AUTO, j)
+    if b:
+        b.update(cancel=True, updated=time.time()); write_json(batch_file(), b)
 
 
 def next_free_slot(taken: set[str], now=None, hour: int = 15):

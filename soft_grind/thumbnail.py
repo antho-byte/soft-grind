@@ -81,7 +81,7 @@ def check_quote(q: str) -> list[str]:
     out = []
     if q != q.lower(): out.append("quote should be lowercase.")
     if not q.strip().endswith((".", "?")): out.append('quote should end with "." or "?".')
-    if len(q.split()) > 3: out.append("more than 3 words; keep it short.")
+    if len(q.split()) > 5: out.append("more than 5 words; keep it short.")
     return out
 
 

@@ -19,24 +19,33 @@ def _folder():
     (d / "notes.txt").write_text("x")
     return d
 
-def test_headlines_rules_and_uniqueness():
+def test_headlines_come_only_from_the_owners_list():
+    import json
+    raw = json.loads(headlines.LIST_FILE.read_text(encoding="utf-8"))
+    mine = {h for k, v in raw.items() if not k.startswith("_") for h in v}
+    assert len(mine) == 100 and set(headlines.ALL) == mine
+    assert not [h for h in mine if check_quote(h)]                             # lowercase, ends with . or ?, at most 5 words
     used = set()
     for mood in ("calm", "groovy"):
-        for _ in range(8):
+        for _ in range(5):
             for h in headlines.suggest(mood, ["rainy window", "night shift"], used, n=10):
-                assert not check_quote(h), (h, check_quote(h))               # lowercase, <= 4 words, ends with . or ?
-                assert h.lower() not in used; used.add(h.lower())
-    assert len(used) == 160                                                    # 160 unique headlines in a row, never a repeat
-    first = headlines.suggest("calm", ["rainy window"], set(), 1, seed=1)[0]
-    assert first in headlines.BY_SCENE["rainy window"] or first in headlines.SOFT_GRIND                    # a rare soft-grind line may come first
-    assert headlines.suggest("calm", ["rainy window"], set(headlines.SOFT_GRIND), 1, seed=1)[0] in headlines.BY_SCENE["rainy window"]
-    allp = set(headlines.pool("calm")) | set(headlines.pool("groovy")) | {h for v in headlines.BY_SCENE.values() for h in v} | set(headlines.SOFT_GRIND)
-    assert len(allp) >= 180 and not [h for h in allp if check_quote(h)]       # every listed headline obeys the rules (3 words, lowercase, . or ?)
-    assert all(len(h.split()) <= 3 and h == h.lower() and h.endswith((".", "?")) for h in allp)
-    few = sum(1 for s in range(400) if headlines.suggest("calm", [], set(), 1, seed=s)[0] in headlines.SOFT_GRIND)
-    assert 5 <= few <= 60                                                      # 'soft grind' lines are rare, not absent, not common
-    left = headlines.suggest("calm", ["rainy window"], {h for h in allp if h != "stay in."}, 1, seed=3)[0]
-    assert left                                                                # even with almost everything recently used it still answers
+                assert h in mine and h.lower() not in used; used.add(h.lower())
+    assert len(used) == 100                                                    # all 100 used once before any repeat
+    assert headlines.suggest("calm", [], used, 1)[0] in mine                   # all used recently: still answers, from the list
+    night = [headlines.suggest("calm", ["late night desk lamp"], set(), 1, seed=s)[0] for s in range(30)]
+    assert all(h in headlines.GROUPS["night"] + headlines.GROUPS["focus"] + headlines.GROUPS["calm"] for h in night)   # the scene's groups first
+
+
+def test_ai_only_chooses_from_the_list():
+    from soft_grind import ai
+    class Fake(ai.AIClient):
+        def chat(self, system, user, **kw):
+            assert "Headlines to choose from" in user
+            return "made up line.\nlamp on.\nstill up?\n", 0.001
+    h, cost = headlines.pick({"description": "a desk at night", "scenes": ["late night desk lamp"]}, "calm",
+                             ["late night desk lamp"], set(), Fake("fake-key"))
+    assert h in ("lamp on.", "still up?") and cost == 0.001                    # the invented line is thrown away
+
 
 def test_parse_headlines_filters_bad_lines():
     txt = """1. let it rain.

@@ -131,19 +131,14 @@ def ensure_quote():
 
 
 def make_headline(analysis, mood, topic, use_ai=True):
-    """A headline that fits the image: AI if a key is set, otherwise the built-in pools. Never one already used."""
+    """A headline from your list that fits the image (the AI chooses from the list when a key is set). Never one used recently."""
     used = used_quotes(name) | {projects.meta(pdir).get("quote", "")}       # also not the one this video has now
-    scenes = [s for s in analysis.get("scenes", []) if s in topic] or analysis.get("scenes", []) or list(topic)[:2]
-    if use_ai and ai_token and not ai_mock:
-        try:
-            opts, cost = ai.AIClient(ai_token, ai_model).suggest_headlines(analysis.get("description", ""), mood, scenes, used)
-            if opts:
-                st.session_state["_ai_spent"] = st.session_state.get("_ai_spent", 0.0) + cost
-                projects.add_cost(name, "ai", cost, False)
-                return opts[0]
-        except ai.AIError:
-            pass
-    return headlines.suggest(mood, scenes, used, 1)[0]
+    client = ai.AIClient(ai_token, ai_model) if (use_ai and ai_token and not ai_mock) else None
+    h, cost = headlines.pick(analysis, mood, list(topic), used, client)
+    if cost:
+        st.session_state["_ai_spent"] = st.session_state.get("_ai_spent", 0.0) + cost
+        projects.add_cost(name, "ai", cost, False)
+    return h
 
 
 def assign_image(path, analysis, mood, topic):
@@ -500,6 +495,9 @@ if step == "projects":
             st.button("automatic: the whole video", width="stretch",
                       on_click=lambda: st.session_state.update(_auto_open=True, auto_scenes=projects.fresh_scenes(PROJECTS, 4)))
             st.caption("one button: music, image, headline, cover, video and text")
+            st.button("batch: several videos at once", width="stretch",
+                      on_click=lambda: st.session_state.update(_batch_open=True, _auto_open=False))
+            st.caption("make a stack of whole videos in one go; each one gets the next free upload slot")
 
     def auto_form():
         st.markdown("**make a whole video automatically**")
@@ -555,6 +553,85 @@ if step == "projects":
     if st.session_state.get("_auto_open"):
         with st.container(key="card_auto"):
             auto_form()
+
+    def batch_form():
+        st.markdown("**make a batch of videos**")
+        st.caption("Each video gets its own scenes, its own picture from your library, a headline from your list, a cover, the video "
+                   "and the YouTube text, and the next free upload slot (mon / wed / fri 15:00). Nothing is uploaded: you check "
+                   "them first, then upload them from the videos page.")
+        b1, b2, b3 = st.columns(3)
+        n_vid = b1.select_slider("how many videos", [2, 3, 4, 5, 6, 8, 10, 12], 6, key="batch_n")
+        b_sound = b2.selectbox("sound", list(brand.PRESETS), key="batch_sound")
+        B_LEN = {"about 1 hour (10 songs)": 10, "about 2 hours (20 songs)": 20, "short test (4 songs)": 4}
+        b_len = b3.selectbox("length", list(B_LEN), key="batch_len")
+        c1, c2 = st.columns(2)
+        b_names = c1.selectbox("track names", names.STYLES, key="batch_names")
+        ai_on = bool(ai_token and not ai_mock)
+        b_improve = c2.checkbox("AI improves the music prompt", value=ai_on, disabled=not ai_on, key="batch_improve")
+        songs = B_LEN[b_len]
+        credits = n_vid * (songs / 2 * brand.CREDITS["suno_request"] + (0.03 if ai_on else 0))
+        db_ = {k: v for k, v in library.load_db().items() if v.get("analysis") and Path(k).exists()}
+        free_imgs = len(set(db_) - set(library.used_images(PROJECTS)))
+        hours = n_vid * (0.35 if songs <= 10 else 0.7) / 2 + n_vid * (0.33 if songs <= 10 else 0.66)
+        st.markdown(f"**≈ {credits:.1f} credits** · about {hours:.1f} hours on this computer · {free_imgs} unused pictures in your library")
+        if not db_:
+            st.warning("The app has not looked at your pictures yet: open **images**, choose your folder and press look at the images first.")
+        elif free_imgs < n_vid:
+            st.warning(f"Only {free_imgs} pictures have not been used yet, so some videos will reuse one. Add pictures to your folder "
+                       "and let the app look at them, or make a smaller batch.")
+        st.caption("Keep the black window open and the computer awake until it is done. Your phone gets one message at the end, "
+                   "and one for any video that stops.")
+        go_ok = (mock or token) and bool(db_)
+        if st.button(f"make {n_vid} videos", type="primary", disabled=not go_ok, key="batch_go"):
+            mood_key_ = "groovy" if "groovy" in b_sound else "calm"
+            try:
+                made = projects.start_batch(PROJECTS, n_vid, {"style": brand.PRESETS[b_sound], "n_req": songs // 2, "minutes": 6.0,
+                                                               "model": brand.MODELS[0], "name_style": b_names, "mood_key": mood_key_,
+                                                               "mock": mock, "improve_prompt": bool(b_improve and ai_on), "use_ai": ai_on,
+                                                               "ai_model": ai_model, "crossfade": crossfade, "fade_in": 3.0, "fade_out": 6.0,
+                                                               "plan": True},
+                                            token, ai_token if ai_on else "")
+                st.session_state["_batch_open"] = False
+                st.toast(f"started {len(made)} videos: {made[0]} to {made[-1]}")
+                st.rerun()
+            except RuntimeError as e:
+                st.error(str(e))
+        if st.button("cancel", key="batch_cancel_form", type="tertiary"):
+            st.session_state["_batch_open"] = False
+            st.rerun()
+
+    if st.session_state.get("_batch_open"):
+        with st.container(key="card_batch_form"):
+            batch_form()
+
+    def batch_card():
+        bs = projects.batch_status()
+        if bs["state"] == "none" or (not bs["running"] and time.time() - bs.get("finished", bs.get("updated", 0)) > 6 * 3600):
+            return
+        with st.container(key="card_batch"):
+            if bs["running"]:
+                st.markdown(f"**batch · {bs['done']} of {bs['total']} videos made**")
+                parts = [projects.auto_status(Path(i)) for i in bs["items"]]
+                st.progress(sum(p["progress"] if p["state"] not in ("failed", "needs_attention", "cancelled") else 1.0 for p in parts) / max(1, len(parts)))
+                busy = [f"{Path(i).name}: {p['step_name'] or p['message']}" for i, p in zip(bs["items"], parts) if p["state"] == "running"]
+                st.caption(" · ".join(busy) if busy else "starting…")
+                if bs.get("cancel"):
+                    st.caption("stopping: the videos being made stop at the next safe point")
+                elif st.button("stop the batch", key="batch_stop", type="tertiary"):
+                    projects.cancel_batch(); st.rerun()
+            else:
+                made, probs = bs.get("made", []), bs.get("problems", [])
+                label = {"done": "batch done", "cancelled": "batch stopped", "interrupted": "batch stopped unexpectedly"}.get(bs["state"], "batch")
+                st.markdown(f"**{label} · {len(made)} of {bs['total']} videos made**")
+                if probs:
+                    st.caption("need a look: " + ", ".join(probs) + " (press continue on their cards)")
+                if bs["state"] == "interrupted":
+                    st.caption("The window was closed or the computer went to sleep. Press continue on the cards of the unfinished videos.")
+                if st.button("hide", key="batch_hide", type="tertiary"):
+                    b_ = projects.read_json(projects.batch_file()); b_.update(finished=0, updated=0); projects.write_json(projects.batch_file(), b_)
+                    st.rerun()
+
+    st.fragment(run_every=5 if projects.batch_status()["running"] else None)(batch_card)()
     dups = fixes.duplicates(PROJECTS)
     if dups:
         with st.expander(f"{sum(len(n) - 1 for _, n in dups)} videos share a headline with another video", expanded=True):

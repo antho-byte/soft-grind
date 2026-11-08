@@ -254,3 +254,23 @@ def test_planning_page_shows_planned_videos_and_plans_a_free_slot():
     assert soon[1].strftime("%Y-%m-%d %H:%M") in (root / "mix-002" / "upload.txt").read_text()
     click(at, "plan_next"); click(at, "plan_prev"); click(at, "plan_open_mix-001")
     assert at.session_state["project"] == "mix-001"
+
+
+def test_batch_makes_several_whole_videos_each_with_its_own_headline_picture_and_slot():
+    settings, projects = home(); make_library(settings)
+    from soft_grind import headlines
+    at = open_app()
+    click(at, label="batch: several videos at once"); assert at.session_state["_batch_open"]
+    [s for s in at.select_slider if s.key == "batch_n"][0].set_value(2); at.run()
+    [s for s in at.selectbox if s.key == "batch_len"][0].set_value("short test (4 songs)"); at.run()
+    click(at, "batch_go"); assert not at.session_state["_batch_open"]
+    root = settings.projects_dir(); names = ["mix-001", "mix-002"]
+    assert wait(lambda: projects.batch_status()["state"] in ("done", "cancelled", "interrupted"), 240), projects.batch_status()
+    bs = projects.batch_status(); assert bs["state"] == "done" and sorted(bs["made"]) == names, bs
+    metas = [projects.meta(root / n) for n in names]
+    assert all((root / n / "video.mp4").exists() and m["title"].startswith(m["quote"]) for n, m in zip(names, metas))
+    assert all(m["quote"] in headlines.ALL for m in metas) and metas[0]["quote"] != metas[1]["quote"]     # from your list, never twice
+    assert metas[0]["schedule"] and metas[1]["schedule"] and metas[0]["schedule"] != metas[1]["schedule"]  # each its own free slot
+    assert metas[0]["topic"] != metas[1]["topic"]                                                            # each its own scenes
+    assert not any(projects.youtube_status(root / n)["state"] != "none" for n in names)                     # nothing uploaded
+    at.run(); assert any("batch done" in m.value for m in at.markdown)
