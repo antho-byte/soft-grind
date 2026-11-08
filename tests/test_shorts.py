@@ -54,7 +54,12 @@ class _Fake(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
         self.send_response(code); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
     def do_POST(self):
-        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        raw = self.rfile.read(int(self.headers["Content-Length"]))
+        if self.path == "/api/v1/files/":
+            _Fake.seen["upload"] = (self.headers["Authorization"], b'name="file"' in raw and b"image/jpeg" in raw)
+            url = f"http://127.0.0.1:{self.server.server_port}/uploads/abc.jpg"
+            return self._send(200, json.dumps({"file_url": url, "mime": "image/jpeg"}).encode())
+        body = json.loads(raw)
         if self.path == "/veo/videos":
             _Fake.seen["create"] = body
             return self._send(200, json.dumps({"success": True, "task_id": "t1"}).encode())
@@ -84,3 +89,20 @@ def test_ai_animation_sends_the_vertical_picture_twice_and_saves_the_loop(vid, t
 def test_ai_animation_practice_mode_makes_a_free_clip(vid):
     animate.Animator("", mock=True).make(vid, vid / shorts.LOOP, "/veo/videos", {}, "x")
     assert video.probe(vid / shorts.LOOP)["size"] == (720, 1280)
+
+
+def test_ai_animation_with_a_platform_token_sends_a_picture_link(vid, tmp_path):
+    clip = tmp_path / "c.mp4"; _clip(clip, 2); _Fake.mp4 = clip.read_bytes(); _Fake.seen = {}
+    srv = HTTPServer(("127.0.0.1", 0), _Fake); threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_port}"
+    ep, tpl, _, _ = animate.MODELS["veo 3.1 fast (loops)"]
+    animate.Animator("fake-key", base_url=base, platform_token="fake-platform-token", upload_url=base + "/api/v1/files/").make(
+        vid, vid / shorts.LOOP, ep, tpl, "rain", poll=0.05)
+    assert _Fake.seen["upload"] == ("Bearer fake-platform-token", True)                 # uploaded as a multipart 'file'
+    assert _Fake.seen["create"]["image_urls"] == [base + "/uploads/abc.jpg"] * 2         # the link, not the picture itself
+    srv.shutdown()
+
+
+def test_all_channels_failed_is_explained():
+    from soft_grind import errors
+    assert "link" in errors.explain('HTTP 502 from /veo/videos: {"error":"all_channels_failed"}')["advice"]

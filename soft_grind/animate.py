@@ -34,8 +34,31 @@ MODELS = {
 }
 
 
+UPLOAD_URL = "https://platform.acedata.cloud/api/v1/files/"
+
+
 class AnimateError(RuntimeError):
     pass
+
+
+def upload_picture(img, platform_token: str, url: str = UPLOAD_URL) -> str:
+    """Put the picture on AceDataCloud's own file storage and return its link (the video models want a link)."""
+    import io as _io
+    buf = _io.BytesIO(); img.convert("RGB").save(buf, "JPEG", quality=92)
+    try:
+        r = requests.post(url, headers={"authorization": f"Bearer {platform_token}"}, timeout=120,
+                          files={"file": ("picture.jpg", buf.getvalue(), "image/jpeg")})
+    except requests.RequestException as e:
+        raise AnimateError(net.friendly(e)) from e
+    if r.status_code >= 400:
+        raise AnimateError(f"HTTP {r.status_code} from the file upload: {r.text[:300]} (check the platform token in settings)")
+    try:
+        link = r.json().get("file_url") or find_video_url(r.json()) or ""
+    except ValueError:
+        link = ""
+    if not str(link).startswith("http"):
+        raise AnimateError(f"The file upload gave no link: {r.text[:300]}")
+    return link
 
 
 def find_video_url(node) -> str | None:
@@ -74,9 +97,10 @@ def mock_clip(pdir: Path, out: Path, seconds: int = 5) -> None:
 
 
 class Animator:
-    def __init__(self, token: str, mock: bool = False, base_url: str = imagegen.BASE_URL):
+    def __init__(self, token: str, mock: bool = False, base_url: str = imagegen.BASE_URL, platform_token: str = "",
+                 upload_url: str = UPLOAD_URL):
         self.client = imagegen.ImageClient(token, base_url=base_url, mock=mock)
-        self.mock = mock
+        self.mock, self.platform_token, self.upload_url = mock, platform_token.strip(), upload_url
 
     def _post(self, path: str, payload: dict) -> dict:
         try:
@@ -92,8 +116,9 @@ class Animator:
         src = shorts.source_picture(pdir)
         if src is None:
             raise AnimateError("No picture for this video yet: make the cover first.")
-        payload = imagegen.fill_template(copy.deepcopy(template), {"image": imagegen.to_data_uri(shorts.vertical(src), 1280),
-                                                                  "prompt": prompt})
+        pic = shorts.vertical(src)
+        image = upload_picture(pic, self.platform_token, self.upload_url) if self.platform_token else imagegen.to_data_uri(pic, 1280)
+        payload = imagegen.fill_template(copy.deepcopy(template), {"image": image, "prompt": prompt})
         res = self._post(endpoint, payload)
         url = find_video_url(res)
         task_id = res.get("task_id") or res.get("id")
@@ -155,7 +180,9 @@ def run(job_path: str) -> None:
     save(state="running", message="sending the picture", error="")
     token = os.getenv("SOFTGRIND_IMAGE_TOKEN") or settings.load_keys().get("image", "")
     try:
-        Animator(token, bool(spec.get("mock"))).make(pdir, pdir / shorts.LOOP, spec["endpoint"], spec["template"], spec["prompt"],
+        if not spec.get("mock"):
+            save(message="uploading the picture" if settings.load_keys().get("platform") else "sending the picture")
+        Animator(token, bool(spec.get("mock")), platform_token=settings.load_keys().get("platform", "")).make(pdir, pdir / shorts.LOOP, spec["endpoint"], spec["template"], spec["prompt"],
                                                      on_tick=lambda s: save(message=f"the AI is animating · {int(s)}s"))
         save(state="done", message="done", finished=time.time())
         projects.set_meta(pdir, loop_model=spec.get("model", ""), loop_made=time.strftime("%Y-%m-%d %H:%M"))

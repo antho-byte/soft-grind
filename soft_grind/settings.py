@@ -96,10 +96,12 @@ def load_keys() -> dict:
         return {}
 
 
-def save_keys(suno: str, image: str, ai: str = "", ai_model: str = "") -> None:
+def save_keys(suno: str, image: str, ai: str = "", ai_model: str = "", platform: str | None = None) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    KEYS_FILE.write_text(json.dumps({"suno": suno.strip(), "image": image.strip(),
-                                     "ai": ai.strip(), "ai_model": ai_model.strip()}, indent=2), encoding="utf-8")
+    keep = load_keys()
+    data = {"suno": suno.strip(), "image": image.strip(), "ai": ai.strip(), "ai_model": ai_model.strip(),
+            "platform": (platform if platform is not None else keep.get("platform", "")).strip()}
+    KEYS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
     try:
         KEYS_FILE.chmod(0o600)  # owner-only on Mac/Linux; ignored on Windows
     except OSError:

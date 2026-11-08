@@ -4,6 +4,10 @@ from __future__ import annotations
 import re
 
 RULES = [
+    (r"all_channels_failed",
+     "The video service could not handle this request.",
+     "Most often it needs the picture as a web link: add a platform token in settings (keys card), then try again. "
+     "If that is already set, the model may be busy: try again later or pick another model."),
     (r"insufficient|balance|used_up|quota|out of credit|exceeded|payment|top up|credits? (is|are) (not enough|exhausted)",
      "You are out of credits (or over the limit of this key).",
      "Top up at platform.acedata.cloud, or raise the usage limit of the key. Videos that were already made are safe."),

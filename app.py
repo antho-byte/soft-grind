@@ -260,7 +260,9 @@ def shorts_ui(pdir_, vname):
                 body = st.text_area("request (JSON)", json.dumps(tpl0, indent=2), height=170, key=f"sh_tpl_{vname}_{model}")
             st.caption((f"≈ ${price:.2f} per clip at the cheapest top-up tier" if price else "price: see your AceDataCloud console")
                        + (" · loops by itself" if loops else " · not a perfect loop: tick 'play forwards then backwards' below")
-                       + (" · practice mode: a free fake clip" if img_mock else " · uses your image key"))
+                       + (" · practice mode: a free fake clip" if img_mock else
+                          " · uses your image key; the picture goes as a link via your platform token" if settings.load_keys().get("platform")
+                          else " · uses your image key. Tip: add a platform token in settings, the video models want the picture as a link"))
             if st.button("animate the picture", type="primary", key=f"sh_animate_{vname}", disabled=not has_pic or a_st["running"]
                          or not (img_token or img_mock)):
                 try:
@@ -455,9 +457,16 @@ if step == "settings":
         st.session_state["_cfg_ai_model"] = st.text_input("AI model", st.session_state["_cfg_ai_model"], key="w_cfg_ai_model",
                                                           help="Exact model name from the Chat tab at platform.acedata.cloud/models, e.g. a Claude Haiku.")
         st.session_state["_cfg_ai_mock"] = st.checkbox("AI practice mode (no API, free)", value=not st.session_state["_cfg_ai"])
+        st.caption("picture links for animated loops (AceDataCloud platform)")
+        st.session_state.setdefault("_cfg_platform", SAVED.get("platform", ""))
+        st.session_state["_cfg_platform"] = st.text_input(
+            "platform token", st.session_state["_cfg_platform"], type="password", key="w_cfg_platform",
+            help="Only for 'animate the picture'. The video models want the picture as a web link: with this token the app first "
+                 "uploads the vertical picture to AceDataCloud's own file storage (cdn.acedata.cloud). Make one at "
+                 "platform.acedata.cloud → console → platform tokens. Note: that link can be opened by anyone who has it.")
         token, img_token, ai_token, ai_model, crossfade, mock, img_mock, ai_mock = read_cfg()
         if st.button("save keys on this computer", type="primary"):
-            settings.save_keys(token, img_token, ai_token, ai_model)
+            settings.save_keys(token, img_token, ai_token, ai_model, st.session_state["_cfg_platform"])
             st.success("saved: you won't need to paste them again")
     with st.container(key="card_folders"):
         st.markdown("**folders and video**")
@@ -575,7 +584,7 @@ if step == "settings":
     with st.container(key="card_diag"):
         st.markdown("**diagnostics**")
         st.caption("Something not working? Copy this and send it to me. Keys and passwords are removed automatically.")
-        diag = health.diagnostics([token, img_token, ai_token])
+        diag = health.diagnostics([token, img_token, ai_token, SAVED.get("platform", "")])
         st.code(diag, language=None)
         st.download_button("download diagnostics.txt", diag, "diagnostics.txt")
 
