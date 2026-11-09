@@ -422,12 +422,22 @@ def start_batch(root: Path, n: int, spec: dict, suno_token: str = "", ai_token: 
     if batch_status()["running"]:
         raise RuntimeError("A batch is already running. Wait for it, or cancel it first.")
     names = []
-    for _ in range(max(1, min(int(n), 50))):
+    sounds = spec.get("sounds") or []                       # preset names; empty = the single style in spec
+    mixed = spec.get("sound_mode") == "mix"
+    for k in range(max(1, min(int(n), 50))):
         nm = create_project(root)
         pdir = Path(root) / nm
         topic = meta(pdir).get("topic") or list(brand.SCENES[:4])
-        set_meta(pdir, mood=spec.get("mood_key", "calm"), style=spec.get("style", ""), batch=True)
-        prepare_auto(pdir, {**spec, "scenes": topic, "quiet": True, "upload": False}, "waiting in the batch")
+        vs = dict(spec)
+        if sounds and mixed:                                # every video alternates between all chosen sounds
+            vs.update(styles=[brand.PRESETS[s] for s in sounds], style=brand.PRESETS[sounds[0]], improve_prompt=False,
+                      mood_key="groovy" if sum("groovy" in s for s in sounds) * 2 > len(sounds) else "calm")
+        elif sounds:                                        # one sound per video, taking turns
+            s = sounds[k % len(sounds)]
+            vs.update(style=brand.PRESETS[s], mood_key="groovy" if "groovy" in s else "calm")
+        label = " + ".join(sounds) if (sounds and mixed) else (sounds[k % len(sounds)] if sounds else "")
+        set_meta(pdir, mood=vs.get("mood_key", "calm"), style=vs.get("style", ""), sound=label, batch=True)
+        prepare_auto(pdir, {**vs, "scenes": topic, "quiet": True, "upload": False}, "waiting in the batch")
         names.append(nm)
     bf = batch_file(); bf.parent.mkdir(parents=True, exist_ok=True)
     write_json(bf, {"state": "queued", "items": [str(Path(root) / nm) for nm in names], "started": time.time(), "updated": time.time()})

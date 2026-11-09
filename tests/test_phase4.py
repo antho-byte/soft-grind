@@ -161,3 +161,33 @@ def test_planning_slots_and_unplanned(tmp_path, monkeypatch):
     import pytest
     with pytest.raises(RuntimeError):
         planning.assign(p, slots[0])                                          # a video on youtube keeps youtube's date
+
+
+def test_batch_sounds_take_turns_or_mix_inside_each_video(tmp_path, monkeypatch):
+    from soft_grind import brand, projects, settings
+    monkeypatch.setattr(settings, "DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr(projects, "_spawn", lambda *a, **k: None)
+    root = tmp_path / "projects"; root.mkdir()
+    a, b = list(brand.PRESETS)[0], list(brand.PRESETS)[2]
+    made = projects.start_batch(root, 4, {"style": brand.PRESETS[a], "sounds": [a, b], "sound_mode": "each", "n_req": 5})
+    specs = [projects.read_json(root / n / projects.AUTO)["spec"] for n in made]
+    assert [s["style"] for s in specs] == [brand.PRESETS[a], brand.PRESETS[b]] * 2                       # taking turns
+    assert [s["mood_key"] for s in specs] == ["calm", "groovy"] * 2 and projects.meta(root / made[1])["sound"] == b
+    projects.write_json(projects.batch_file(), {})
+    made = projects.start_batch(root, 2, {"style": brand.PRESETS[a], "sounds": [a, b], "sound_mode": "mix", "n_req": 5})
+    s = projects.read_json(root / made[0] / projects.AUTO)["spec"]
+    assert s["styles"] == [brand.PRESETS[a], brand.PRESETS[b]] and s["improve_prompt"] is False
+
+
+def test_music_requests_rotate_through_several_sounds(tmp_path, monkeypatch):
+    from soft_grind import worker
+    sent = []
+
+    class Fake:
+        def __init__(self, *a, **k): pass
+        def generate(self, prompt, *a): sent.append(prompt); return f"t{len(sent)}"
+        def wait(self, tid, on_tick=None): return []
+    monkeypatch.setattr(worker, "SunoClient", Fake)
+    spec = {"mock": True, "n_req": 4, "scenes": ["rainy window"], "model": "m", "minutes": 6, "style": "A", "styles": ["A", "B"]}
+    worker.generate_music(tmp_path, spec, "", lambda m: None, lambda t: None, lambda d: None, lambda: None)
+    assert [p.split(",")[0] for p in sent] == ["A", "B", "A", "B"]

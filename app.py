@@ -660,17 +660,27 @@ if step == "projects":
         st.caption("Each video gets its own scenes, its own picture from your library, a headline from your list, a cover, the video "
                    "and the YouTube text, and the next free upload slot (mon / wed / fri 15:00). Nothing is uploaded: you check "
                    "them first, then upload them from the videos page.")
-        b1, b2, b3 = st.columns(3)
-        n_vid = b1.select_slider("how many videos", [2, 3, 4, 5, 6, 8, 10, 12], 6, key="batch_n")
-        b_sound = b2.selectbox("sound", list(brand.PRESETS), key="batch_sound")
-        B_LEN = {"about 1 hour (10 songs)": 10, "about 2 hours (20 songs)": 20, "short test (4 songs)": 4}
-        b_len = b3.selectbox("length", list(B_LEN), key="batch_len")
-        c1, c2 = st.columns(2)
-        b_names = c1.selectbox("track names", names.STYLES, key="batch_names")
+        b1, b2 = st.columns([1, 2])
+        n_vid = b1.select_slider("how many videos", [2, 3, 4, 5, 6, 8, 10, 12], 10, key="batch_n")
+        b_sounds = b2.multiselect("sound (pick one or more)", list(brand.PRESETS), [list(brand.PRESETS)[0]], key="batch_sounds")
+        b_mode = "each"
+        if len(b_sounds) > 1:
+            b_mode = st.radio("how to use these sounds", ["each", "mix"], horizontal=True, key="batch_sound_mode",
+                              format_func=lambda m: "one sound per video, taking turns" if m == "each" else "mixed inside every video")
+            if b_mode == "each":
+                st.caption(" · ".join(f"video {k + 1}: {b_sounds[k % len(b_sounds)].split(' (')[0]}" for k in range(min(n_vid, 6)))
+                           + (" · …" if n_vid > 6 else ""))
+            else:
+                st.caption("Every video gets songs in all these sounds, taking turns (song 1–2 in the first, 3–4 in the second, …).")
         ai_on = bool(ai_token and not ai_mock)
-        b_improve = c2.checkbox("AI improves the music prompt", value=ai_on, disabled=not ai_on, key="batch_improve")
-        b_shorts = st.select_slider("shorts per video (vertical, 30 seconds, slow zoom)", [0, 1, 2, 3], 0, key="batch_shorts",
-                                    help="Made right after each video. Animated loops can be added later per video.")
+        B_LEN = {"about 1 hour (10 songs)": 10, "about 2 hours (20 songs)": 20, "short test (4 songs)": 4}
+        with st.expander("more options"):
+            c1, c2 = st.columns(2)
+            b_len = c1.selectbox("length", list(B_LEN), key="batch_len")
+            b_names = c2.selectbox("track names", names.STYLES, key="batch_names")
+            b_improve = st.checkbox("AI improves the music prompt", value=ai_on, disabled=not ai_on or b_mode == "mix", key="batch_improve")
+            b_shorts = st.select_slider("shorts per video (vertical, 30 seconds, slow zoom)", [0, 1, 2, 3], 0, key="batch_shorts",
+                                        help="Made right after each video. Animated loops can be added later per video.")
         songs = B_LEN[b_len]
         credits = n_vid * (songs / 2 * brand.CREDITS["suno_request"] + (0.03 if ai_on else 0))
         db_ = {k: v for k, v in library.load_db().items() if v.get("analysis") and Path(k).exists()}
@@ -684,11 +694,12 @@ if step == "projects":
                        "and let the app look at them, or make a smaller batch.")
         st.caption("Keep the black window open and the computer awake until it is done. Your phone gets one message at the end, "
                    "and one for any video that stops.")
-        go_ok = (mock or token) and bool(db_)
+        go_ok = (mock or token) and bool(db_) and bool(b_sounds)
         if st.button(f"make {n_vid} videos", type="primary", disabled=not go_ok, key="batch_go"):
-            mood_key_ = "groovy" if "groovy" in b_sound else "calm"
+            mood_key_ = "groovy" if "groovy" in b_sounds[0] else "calm"
             try:
-                made = projects.start_batch(PROJECTS, n_vid, {"style": brand.PRESETS[b_sound], "n_req": songs // 2, "minutes": 6.0,
+                made = projects.start_batch(PROJECTS, n_vid, {"style": brand.PRESETS[b_sounds[0]], "sounds": b_sounds, "sound_mode": b_mode,
+                                                               "n_req": songs // 2, "minutes": 6.0,
                                                                "model": brand.MODELS[0], "name_style": b_names, "mood_key": mood_key_,
                                                                "mock": mock, "improve_prompt": bool(b_improve and ai_on), "use_ai": ai_on,
                                                                "ai_model": ai_model, "crossfade": crossfade, "fade_in": 3.0, "fade_out": 6.0,
