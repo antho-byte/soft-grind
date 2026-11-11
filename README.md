@@ -11,10 +11,12 @@ export ACEDATACLOUD_API_TOKEN=...   # optional; without it the app runs in mock 
 streamlit run app.py
 ```
 
-Pages: **videos** (one card per mix; new video step by step or fully automatic), **planning** (month calendar of
+Pages: **videos** (overview tiles, one card per mix with its next step, **review** mode for finished videos; new video step by step, automatic or batch), **planning** (month calendar of
 what goes out when, free Mon/Wed/Fri slots, plan an undated video in two clicks), **images** (your picture library),
 **settings** (keys, phone messages, password, setup check). Each video has three tabs: **music**, **cover**, **video**.
 
+- **sound quality**: every song is levelled to the same loudness before the mix (then −14 LUFS for the whole video); songs can be removed or reordered on the music tab.
+- **YouTube text**: matches the sound (lofi soul / japanese jazz / city pop funk), tags vary per video, and an optional honest line says the music is made with AI tools (settings → youtube and phone).
 - **automatic mode** makes the whole video in the background: music, picture, headline, thumbnail, video, text.
 - **batch** (new video → batch) makes 2–12 whole videos in one go, two at a time; each gets the next free upload slot. Nothing is uploaded.
 - **headlines** come from `soft_grind/headline_list.json` (the owner's 100 headlines, in five groups); the AI only chooses from it.

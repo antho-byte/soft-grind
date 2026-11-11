@@ -35,7 +35,10 @@ if not security.password_hash() and str(st.get_option("server.address") or "") n
 PROJECTS = settings.projects_dir()
 SAVED = settings.load_keys()
 
-MENU = [("projects", "videos"), ("planning", "planning"), ("library", "images"), ("settings", "settings")]            # the whole app
+MENU = [("projects", "videos"), ("planning", "planning"), ("library", "images"), ("settings", "settings")]
+MENU_ICON = {"projects": ":material/video_library:", "planning": ":material/calendar_month:", "library": ":material/photo_library:",
+             "settings": ":material/tune:"}
+TAB_ICON = {"music": ":material/music_note:", "thumbnail": ":material/image:", "video": ":material/movie:"}            # the whole app
 TABS = [("music", "music"), ("thumbnail", "cover"), ("video", "video")]                         # inside one video
 VIDEO_STEPS = {"music", "thumbnail", "video"}
 TITLES = {
@@ -356,7 +359,7 @@ def yt_panel(pdir_):
         when = m.get("schedule", "")
         st.caption("Uploads as private" + (f" and publishes by itself on {when} (Amsterdam)." if youtube.publish_at(when) else
                    ": the scheduled time is in the past, so you publish it yourself in YouTube Studio."))
-        if st.button("upload to YouTube", type="primary", width="stretch", disabled=not m.get("title"),
+        if st.button("upload to YouTube", type="primary", width="stretch", disabled=not m.get("title"), icon=":material/upload:",
                      help=None if m.get("title") else "Write the YouTube text first."):
             try:
                 projects.start_youtube(pdir_)
@@ -595,7 +598,7 @@ if step == "settings":
 
 if step == "projects":
     def new_video_menu(where):
-        with where.popover("＋ new video", width="stretch", type="primary"):
+        with where.popover("new video", width="stretch", type="primary", icon=":material/add:"):
             st.button("step by step", on_click=new_video, width="stretch", type="primary")
             st.caption("you choose the music, the image and the words yourself, one tab at a time")
             st.button("automatic: the whole video", width="stretch",
@@ -624,7 +627,9 @@ if step == "projects":
                               help="Connect YouTube in settings first." if not youtube.connected() else None)
         st.caption(f"about {n_songs / 2 * 0.28 + (0.03 if ai_on else 0):.1f} credits · runs in the background, so you can leave the page · "
                    "needs your image library to be looked at (images page) · start one video at a time for the first tries")
-        if st.button("make the video", type="primary", disabled=not (mock or token) or not auto_scenes):
+        ga, gb, _g = st.columns([1.3, 0.8, 3], vertical_alignment="center")
+        if ga.button("make the video", type="primary", disabled=not (mock or token) or not auto_scenes, icon=":material/auto_awesome:",
+                     width="stretch"):
             nm = projects.create_project(PROJECTS)
             pd_ = PROJECTS / nm
             mood_key_ = "groovy" if "groovy" in auto_sound else "calm"
@@ -638,7 +643,7 @@ if step == "projects":
             st.session_state["_auto_open"] = False
             st.toast(f"started {nm}")
             st.rerun()
-        if st.button("cancel", key="auto_cancel"):
+        if gb.button("cancel", key="auto_cancel", type="tertiary", width="stretch"):
             st.session_state["_auto_open"] = False
             st.rerun()
 
@@ -702,7 +707,9 @@ if step == "projects":
         st.caption("Keep the black window open and the computer awake until it is done. Your phone gets one message at the end, "
                    "and one for any video that stops.")
         go_ok = (mock or token) and bool(db_) and bool(b_sounds)
-        if st.button(f"make {n_vid} videos", type="primary", disabled=not go_ok, key="batch_go"):
+        ga, gb, _g = st.columns([1.3, 0.8, 3], vertical_alignment="center")
+        if ga.button(f"make {n_vid} videos", type="primary", disabled=not go_ok, key="batch_go", icon=":material/auto_awesome:",
+                     width="stretch"):
             mood_key_ = "groovy" if "groovy" in b_sounds[0] else "calm"
             try:
                 made = projects.start_batch(PROJECTS, n_vid, {"style": brand.PRESETS[b_sounds[0]], "sounds": b_sounds, "sound_mode": b_mode,
@@ -717,7 +724,7 @@ if step == "projects":
                 st.rerun()
             except RuntimeError as e:
                 st.error(str(e))
-        if st.button("cancel", key="batch_cancel_form", type="tertiary"):
+        if gb.button("cancel", key="batch_cancel_form", type="tertiary", width="stretch"):
             st.session_state["_batch_open"] = False
             st.rerun()
 
@@ -773,6 +780,43 @@ if step == "projects":
               "ready": ("ready",), "on youtube": ("scheduled", "on youtube"),
               "busy": ("making music", "making the video", "making it", "uploading", "in the queue")}
     all_items = projects.list_projects(PROJECTS)
+
+    def dashboard():
+        """Four tiles: this week's upload days (ring), ready to upload, being made, credits."""
+        import datetime as _d
+        now_ = _d.datetime.now(); monday = (now_ - _d.timedelta(days=now_.weekday())).date()
+        week_days = {monday + _d.timedelta(days=k) for k in (0, 2, 4)}
+        planned = {planning.parse(i["schedule"]).date() for i in all_items if planning.parse(i["schedule"])
+                   and planning.parse(i["schedule"]).date() in week_days}
+        frac = len(planned) / 3
+        nxt = sorted((planning.parse(i["schedule"]), i) for i in all_items if planning.parse(i["schedule"])
+                     and planning.parse(i["schedule"]) > now_)
+        nxt_txt = (f"next: {nxt[0][0]:%a %d %b}".lower() + f" · {html.escape(nxt[0][1]['quote'])}") if nxt else "nothing planned yet"
+        circ = 2 * 3.14159 * 26
+        ring = (f'<svg width="68" height="68" viewBox="0 0 68 68"><circle cx="34" cy="34" r="26" fill="none" stroke="rgba(255,255,255,.18)" '
+                f'stroke-width="7"/><circle cx="34" cy="34" r="26" fill="none" stroke="#FF7A6B" stroke-width="7" stroke-linecap="round" '
+                f'stroke-dasharray="{circ * frac:.1f} {circ:.1f}" transform="rotate(-90 34 34)"/>'
+                f'<text x="34" y="39" text-anchor="middle" font-size="15" font-weight="700" fill="#fff" font-family="Inter">{len(planned)}/3</text></svg>')
+        n_ready_ = sum(1 for i in all_items if i["stage"] == "ready")
+        busy_ = [i for i in all_items if i["stage"] in ("making music", "making the video", "making it", "uploading", "in the queue")]
+        bs_ = projects.batch_status()
+        busy_sub = (f"batch · {bs_['done']} of {bs_['total']} made" if bs_["running"] else
+                    (", ".join(i["name"] for i in busy_[:3]) if busy_ else "nothing running"))
+        disk_ = health.check_disk(PROJECTS)["detail"].split(":")[0]
+        st.markdown(
+            '<div class="sg-dash">'
+            f'<div class="sg-tile hero">{ring}<div class="txt"><div class="k">this week</div>'
+            f'<div class="v">{len(planned)} of 3 upload days planned</div><div class="s">{nxt_txt}</div></div></div>'
+            f'<div class="sg-tile"><div class="k"><span class="dot" style="background:#3FA27A"></span>ready to upload</div>'
+            f'<div class="v">{n_ready_}</div><div class="s">{"check them with review" if n_ready_ else "nothing waiting"}</div></div>'
+            f'<div class="sg-tile"><div class="k"><span class="dot" style="background:#5E5EE0"></span>being made</div>'
+            f'<div class="v">{len(busy_)}</div><div class="s">{html.escape(busy_sub)}</div></div>'
+            f'<div class="sg-tile"><div class="k"><span class="dot" style="background:#FFC27A"></span>credits this month</div>'
+            f'<div class="v">{projects.credits_this_month():.1f}</div><div class="s">≈ estimate · {html.escape(disk_)}</div></div>'
+            '</div>', unsafe_allow_html=True)
+
+    with dash_slot:
+        dashboard()
     counts = {g: sum(1 for i in all_items if stages is None or i["stage"] in stages) for g, stages in GROUPS.items()}
     fa, fb, fc = toolbar_slot.columns([3.2, 1.6, 1], vertical_alignment="bottom")
     flt = fa.segmented_control("show", [g for g in GROUPS if g == "all" or counts[g]], key="vid_filter", default="all",
@@ -815,7 +859,7 @@ if step == "projects":
                 b0, b2, b1 = st.columns([3.6, 1.6, 1], vertical_alignment="center")
                 b0.caption(f"{len(items)} video{'s' if len(items) != 1 else ''} · tick a name to select it for bulk actions")
                 n_ready = sum(1 for i in projects.list_projects(PROJECTS) if i["stage"] == "ready" and not i["approved"])
-                if n_ready and b2.button(f"review {n_ready} finished", key="go_review", type="primary", width="stretch",
+                if n_ready and b2.button(f"review {n_ready} finished", key="go_review", type="primary", width="stretch", icon=":material/fact_check:",
                                          help="Check each finished video in turn: watch, read the text, then approve or skip."):
                     st.session_state.update(step="review", _review_i=0); st.rerun()
                 if b1.button("select all", type="tertiary", key="sel_all", width="stretch"):
@@ -826,7 +870,7 @@ if step == "projects":
                 mk = [i for i in sel if i["stage"] == "needs the video"]
                 c0, c1, c2, c3, c4 = st.columns([1.3, 1.6, 1.4, 1.3, 0.8], vertical_alignment="center")
                 c0.markdown(f"**{len(sel)} selected**")
-                if c1.button(f"upload {len(up)} to YouTube", type="primary", disabled=not up or not youtube.connected(), width="stretch",
+                if c1.button(f"upload {len(up)} to YouTube", type="primary", icon=":material/upload:", disabled=not up or not youtube.connected(), width="stretch",
                              help=None if youtube.connected() else "Connect YouTube in settings first.", key="bulk_up"):
                     run_queue("upload", up); st.rerun()
                 if c2.button(f"make {len(mk)} video{'s' if len(mk) != 1 else ''}", disabled=not mk, width="stretch", key="bulk_mk",
@@ -924,9 +968,13 @@ if step == "projects":
                             st.error(str(e))
                 label, kind, target = next_step(info)
                 if kind == "link":
-                    st.link_button(label, target, width="stretch", type="primary")
+                    st.link_button(label, target, width="stretch", type="primary", icon=":material/open_in_new:")
                 elif kind != "none" and not au["running"]:
-                    if st.button(label, key=f"next_{nm}", type="primary", width="stretch"):
+                    NEXT_ICON = {"make the music": ":material/music_note:", "make the cover": ":material/image:",
+                                 "make the video": ":material/movie:", "write the text": ":material/edit_note:",
+                                 "upload to YouTube": ":material/upload:", "check and upload": ":material/upload:",
+                                 "see what is missing": ":material/error:"}
+                    if st.button(label, key=f"next_{nm}", type="primary", width="stretch", icon=NEXT_ICON.get(label)):
                         if kind == "open":
                             st.session_state.update(project=nm, tracks=[], fix_results={}, step=target)
                             st.session_state.pop("_job_was_running", None)
@@ -938,7 +986,6 @@ if step == "projects":
 
     running_any = any(p["job"]["running"] or p["render"]["running"] or p["auto"]["running"] or p["yt"]["running"] for p in all_items)
     st.fragment(run_every=4 if running_any else None)(grid)()
-    st.caption(f"credits used this month ≈ {projects.credits_this_month():.1f} · {disk['detail']}")
 
     trashed = projects.list_trash(PROJECTS)
     if trashed:
@@ -1018,7 +1065,8 @@ if step == "music":
                        "practice mode: makes short test tones so you can try the rest of the app for free.")
             name_style = st.selectbox("track names", names.STYLES, help="mix = english and romanised japanese, e.g. “drizzle study” and “mado no ame”")
             job0 = projects.job_status(pdir)
-            if st.button("generate in the background", type="primary", disabled=job0["running"] or not (mock or token)):
+            if st.button("generate in the background", type="primary", disabled=job0["running"] or not (mock or token),
+                         icon=":material/music_note:"):
                 spec = {"style": style, "scenes": scenes, "n_req": n_req, "minutes": minutes, "model": model,
                         "name_style": name_style, "mood_key": mood_key, "mock": mock}
                 try:
@@ -1602,7 +1650,7 @@ if step == "video":
             with st.expander("film dust"):
                 film_look_ui(pdir, name)
             if not rs["running"]:
-                if st.button("make the video again" if video_path.exists() else "make the video", type="secondary" if video_path.exists() else "primary",
+                if st.button("make the video again" if video_path.exists() else "make the video", type="secondary" if video_path.exists() else "primary", icon=":material/movie:",
                              disabled=not (tracks and still_ok), width="stretch"):
                     try:
                         projects.start_render(pdir, crossfade, f_in, f_out)
@@ -1809,7 +1857,8 @@ MENU_SUB = {"projects": f"{proj_count} video{'s' if proj_count != 1 else ''}" if
 with menu_slot:
     for sid, label in MENU:
         active = step == sid or (sid == "projects" and (step in VIDEO_STEPS or step == "review"))
-        st.button(label, key=f"menu_{sid}", type="primary" if active else "secondary", width="stretch", on_click=go, args=(sid,))
+        st.button(label, key=f"menu_{sid}", type="primary" if active else "secondary", width="stretch", on_click=go, args=(sid,),
+                  icon=MENU_ICON[sid])
         st.markdown(f'<div class="sg-step-sub">{MENU_SUB[sid]}</div>', unsafe_allow_html=True)
 with topnav_slot:                                                                           # visible on phones only (CSS)
     for col, (sid, label) in zip(st.columns(len(MENU)), MENU):
@@ -1821,5 +1870,5 @@ if tabs_slot is not None:
              "video": f" · {int(render_now['progress'] * 100)}%" if render_now["running"] else ""}
     with tabs_slot:
         for col, (sid, label) in zip(st.columns(3), TABS):
-            col.button(f"{'✓ ' if done_map[sid] else ''}{label}{extra.get(sid, '')}", key=f"tab_{sid}",
+            col.button(f"{label}{extra.get(sid, '')}", key=f"tab_{sid}", icon=":material/check_circle:" if done_map[sid] else TAB_ICON[sid],
                        type="primary" if step == sid else "secondary", width="stretch", on_click=go, args=(sid,))
