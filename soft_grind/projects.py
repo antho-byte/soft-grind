@@ -327,7 +327,7 @@ def start_youtube(pdir: Path, again: bool = False) -> None:
 
 
 # ---------- queues: many videos, one after another (renders would fight over the CPU, uploads over the connection) ----------
-QUEUES = {"render": RENDER, "upload": YT}
+QUEUES = {"render": RENDER, "upload": YT, "shorts": "shorts_job.json"}
 
 
 def queue_file(kind: str) -> Path:
@@ -345,6 +345,10 @@ def start_queue(kind: str, pdirs: list[Path], spec: dict | None = None) -> list[
             continue
         if kind == "render" and (render_status(p)["running"] or not (p / "still.png").exists() or not audio_files(p / "tracks")):
             continue
+        if kind == "shorts":
+            from . import shorts as _sh
+            if _sh.status(p)["running"] or not audio_files(p / "tracks") or _sh.source_picture(p) is None:
+                continue
         write_json(p / QUEUES[kind], {"state": "queued", "progress": 0.0, "message": "waiting in line", "updated": time.time(),
                                       "spec": spec or {}})
         added.append(str(p))

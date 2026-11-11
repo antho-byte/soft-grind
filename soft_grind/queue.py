@@ -47,6 +47,9 @@ def run(queue_path: str) -> None:
                     if kind == "render":
                         from . import render
                         render.run(str(jp))
+                    elif kind == "shorts":
+                        from . import shorts
+                        shorts.run(str(jp))
                     else:
                         from . import youtube_worker
                         youtube_worker.run(str(jp))

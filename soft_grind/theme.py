@@ -134,6 +134,13 @@ h1,h2,h3{font-family:'Abril Fatface',serif!important;font-weight:400!important;c
 .stApp [data-testid="stButtonGroup"] button[data-variant="segmented_control"][data-selected="true"]{background:var(--indigo)!important}
 .stApp [data-testid="stButtonGroup"] button[data-variant="segmented_control"][data-selected="true"] p{color:#fff!important}
 
+/* "posted on" pills: ticked = soft green */
+.stApp [data-testid="stButtonGroup"] button[data-variant="pills"]{border-radius:999px!important;border:0!important;background:var(--fill)!important;
+  padding:5px 11px!important;min-height:32px;margin-right:4px!important}
+.stApp [data-testid="stButtonGroup"] button[data-variant="pills"] p{color:var(--ink2)!important;font-weight:600!important;font-size:12.5px!important}
+.stApp [data-testid="stButtonGroup"] button[data-variant="pills"][data-selected="true"]{background:#DDF1E6!important}
+.stApp [data-testid="stButtonGroup"] button[data-variant="pills"][data-selected="true"] p{color:#1F5B43!important}
+
 /* ----- inputs: filled, no hard borders ----- */
 .stApp [data-baseweb="input"],.stApp [data-baseweb="textarea"],.stApp [data-baseweb="select"]>div,.stApp [data-baseweb="input"]>div,
 .stApp [data-baseweb="base-input"],.stApp [data-baseweb="textarea"] textarea,.stApp [data-baseweb="select"]>div>div{background:var(--sand2)!important}

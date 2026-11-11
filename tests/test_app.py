@@ -64,8 +64,8 @@ def wait(cond, secs=90):
 def test_every_page_and_tab_loads_and_old_step_names_still_work():
     home()
     at = open_app()
-    assert [b.label for b in at.sidebar.button] == ["videos", "planning", "images", "settings"]
-    for key, want in (("menu_planning", "planning."), ("menu_library", "the images."), ("menu_settings", "settings."), ("menu_projects", "your videos.")):
+    assert [b.label for b in at.sidebar.button] == ["videos", "shorts", "planning", "images", "settings"]
+    for key, want in (("menu_shorts", "shorts."), ("menu_planning", "planning."), ("menu_library", "the images."), ("menu_settings", "settings."), ("menu_projects", "your videos.")):
         click(at, key, sidebar=True); assert title(at).startswith(want[:-1])
     click(at, label="step by step")
     assert at.session_state["step"] == "music" and [b.label for b in at.button if b.key and b.key.startswith("tab_")] == ["music", "cover", "video"]
@@ -332,3 +332,32 @@ def test_review_steps_through_finished_videos_saves_edits_and_approves():
     click(at, "rv_ok")                                                                 # not connected to youtube: approve only
     assert projects.meta(root / "mix-002").get("approved") and any("mix-001" in m.value for m in at.markdown)
     click(at, "rv_ok"); assert any("all checked" in m.value for m in at.markdown)
+
+
+def test_shorts_page_makes_clips_in_bulk_and_ticks_off_posts(monkeypatch):
+    settings, projects = home()
+    from soft_grind import shorts, queue
+    importlib.reload(shorts)
+    spawned = []
+    monkeypatch.setattr(projects, "_spawn", lambda m, w, j, env=None: spawned.append(j))
+    from soft_grind.suno import _write_tone
+    root = settings.projects_dir()
+    for n in ("mix-001", "mix-002"):
+        p = root / n; (p / "tracks").mkdir(parents=True)
+        for k in range(2): _write_tone(p / "tracks" / f"0{k+1} - t{k}.wav", 20, 220 + 40 * k)
+        Image.new("RGB", (1920, 1080), (40, 50, 140)).save(p / "cover_source.png"); Image.new("RGB", (1280, 720)).save(p / "thumbnail.png")
+        projects.set_meta(p, quote=f"{n}.")
+    at = open_app("shorts"); assert not at.exception
+    btn = [b for b in at.button if b.key == "sh_bulk"][0]; assert btn.label == "make clips for 2 videos"
+    btn.click(); at.run()
+    assert spawned == ["queue_shorts.json"]
+    import json as _j
+    q = _j.loads(projects.queue_file("shorts").read_text())
+    for item in q["items"]:                                                       # run the job of each video here, quickly
+        jp = Path(item) / "shorts_job.json"; j = _j.loads(jp.read_text()); j["spec"].update(length=6); jp.write_text(_j.dumps(j))
+    queue.run(str(projects.queue_file("shorts")))
+    assert all(len(shorts.listing(root / n)) == 2 for n in ("mix-001", "mix-002"))
+    at.run(); assert not at.exception
+    pl = [x for x in at.get("button_group") if x.key and x.key.startswith("sh_post_")][0]
+    pl.set_value(["tiktok"]); at.run(); assert not at.exception
+    assert sum(1 for p in ("mix-001", "mix-002") for r in shorts.listing(root / p) if "tiktok" in r.get("posted", {})) == 1

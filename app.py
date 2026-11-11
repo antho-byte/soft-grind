@@ -38,8 +38,8 @@ if _moved_from:
     st.toast(f"Found your videos in the moved app folder: {PROJECTS}", icon=":material/folder_open:")
 SAVED = settings.load_keys()
 
-MENU = [("projects", "videos"), ("planning", "planning"), ("library", "images"), ("settings", "settings")]
-MENU_ICON = {"projects": ":material/video_library:", "planning": ":material/calendar_month:", "library": ":material/photo_library:",
+MENU = [("projects", "videos"), ("shorts", "shorts"), ("planning", "planning"), ("library", "images"), ("settings", "settings")]
+MENU_ICON = {"projects": ":material/video_library:", "shorts": ":material/smartphone:", "planning": ":material/calendar_month:", "library": ":material/photo_library:",
              "settings": ":material/tune:"}
 TAB_ICON = {"music": ":material/music_note:", "thumbnail": ":material/image:", "video": ":material/movie:"}            # the whole app
 TABS = [("music", "music"), ("thumbnail", "cover"), ("video", "video")]                         # inside one video
@@ -47,6 +47,7 @@ VIDEO_STEPS = {"music", "thumbnail", "video"}
 TITLES = {
     "projects": ("your videos.", "every video you made, with its cover. open one to keep going."),
     "review": ("review.", "check each finished video once, then send it on its way. edits are saved as you type."),
+    "shorts": ("shorts.", "every vertical clip in one place: copy the caption, post it, tick it off. youtube shorts can be uploaded from here."),
     "planning": ("planning.", "which video goes out on which day. free upload slots: monday, wednesday and friday at 15:00."),
     "library": ("the images.", "your folder of images: let the app look at them, then match them to your videos."),
     "settings": ("settings.", "keys, folders, security, and a check that everything is ready."),
@@ -438,7 +439,7 @@ tracks = st.session_state["tracks"]
 imgs_dir = pdir / "images"
 
 topnav_slot = st.container(key="topnav")                  # the sidebar is hidden behind a button on phones, so the menu is repeated here
-crumb = {"projects": "all videos", "review": "videos › review", "planning": "planning", "library": "images", "settings": "settings"}.get(step, f"videos › {name}")
+crumb = {"projects": "all videos", "review": "videos › review", "shorts": "shorts", "planning": "planning", "library": "images", "settings": "settings"}.get(step, f"videos › {name}")
 theme.page_title(crumb, *TITLES[step])
 tabs_slot = st.container(key="vtabs") if step in VIDEO_STEPS else None
 if st.session_state.get("_last_view") != (step, name):                    # a new page: start at the top, not where the last one was scrolled
@@ -694,8 +695,8 @@ if step == "projects":
             b_len = c1.selectbox("length", list(B_LEN), key="batch_len")
             b_names = c2.selectbox("track names", names.STYLES, key="batch_names")
             b_improve = st.checkbox("AI improves the music prompt", value=ai_on, disabled=not ai_on or b_mode == "mix", key="batch_improve")
-            b_shorts = st.select_slider("shorts per video (vertical, 30 seconds, slow zoom)", [0, 1, 2, 3], 0, key="batch_shorts",
-                                        help="Made right after each video. Animated loops can be added later per video.")
+            b_shorts = st.select_slider("clips per video for shorts / reels (free: they reuse the songs and the picture)", [0, 1, 2, 3], 2,
+                                    key="batch_shorts", help="Made right after each video: 30 seconds, seamless loop. Find them on the shorts page.")
         songs = B_LEN[b_len]
         credits = n_vid * (songs / 2 * brand.CREDITS["suno_request"] + (0.03 if ai_on else 0))
         db_ = {k: v for k, v in library.load_db().items() if v.get("analysis") and Path(k).exists()}
@@ -1747,6 +1748,79 @@ if step == "review":
                 st.caption(f"approved {rm['approved']}")
 
 
+if step == "shorts":
+    allsh = shorts.all_shorts(PROJECTS)
+    vids = projects.list_projects(PROJECTS)
+    without = [v for v in vids if v["tracks"] and not shorts.listing(v["path"]) and v["stage"] not in ("new", "making music", "making it")
+               and (v["path"] / "tracks").is_dir()]
+    making = [v["name"] for v in vids if shorts.status(v["path"])["running"]]
+    with st.container(key="card_shorts_top"):
+        t1, t2 = st.columns([3, 1.4], vertical_alignment="center")
+        t1.markdown(f"**{len(allsh)} clips** · {sum(1 for r in allsh if not r['posted'])} not posted yet · "
+                    f"{len(without)} video{'s' if len(without) != 1 else ''} without clips"
+                    + (f" · making clips for {', '.join(making)}" if making else ""))
+        t1.caption("Clips cost nothing: they use the songs and the picture a video already has. Two per video, 30 seconds, "
+                   "seamless loop, the video's own animated loop if it has one.")
+        if t2.button(f"make clips for {len(without)} video{'s' if len(without) != 1 else ''}", type="primary", width="stretch",
+                     disabled=not without, key="sh_bulk", icon=":material/auto_awesome:"):
+            added = projects.start_queue("shorts", [v["path"] for v in without], {"n": 2, "length": 30, "motion": "auto"})
+            st.toast(f"making clips for {len(added)} videos, one after another"); st.rerun()
+    fl = st.segmented_control("show", ["to post", "posted", "all"], default="to post", key="sh_filter", required=True,
+                              label_visibility="collapsed") or "to post"
+    rows = [r for r in allsh if fl == "all" or (fl == "to post") == (not r["posted"])]
+    if not rows:
+        st.info("Nothing here. Make clips with the button above, or on a video's video tab." if not allsh else "Nothing in this list.")
+    per_page = 8
+    pages = max(1, (len(rows) + per_page - 1) // per_page)
+    pg = min(st.session_state.get("_sh_page", 0), pages - 1)
+    slots = shorts.short_slots(PROJECTS, 10) if youtube.connected() else []
+    cols = st.columns(4)
+    for k, r in enumerate(rows[pg * per_page:(pg + 1) * per_page]):
+        key = f"{r['name']}_{Path(r['file']).stem}"
+        with cols[k % 4], st.container(key=f"card_short_{key}"):
+            st.video(str(r["path"]))
+            st.markdown(f'<div class="sg-proj-quote" style="font-size:18px">{html.escape(r["quote"])}</div>'
+                        f'<span class="sg-proj-meta">{html.escape(r["name"])} · {r.get("length", "")} s · {html.escape(r["track"])}</span>',
+                        unsafe_allow_html=True)
+            LBL = {"youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok"}
+            now_on = st.pills("posted on", list(shorts.PLATFORMS), selection_mode="multi", default=[p_ for p_ in shorts.PLATFORMS if p_ in r["posted"]],
+                              format_func=lambda p_: LBL[p_], key=f"sh_post_{key}", label_visibility="collapsed")
+            for plat in shorts.PLATFORMS:
+                if (plat in (now_on or [])) != (plat in r["posted"]):
+                    shorts.set_posted(r["pdir"], r["file"], plat, plat in (now_on or []))
+            with st.popover("captions", width="stretch", icon=":material/content_copy:"):
+                cap = r["caption"]
+                st.caption("YouTube Shorts title"); st.code(cap["youtube_title"], language=None)
+                st.caption("YouTube Shorts description"); st.code(cap["youtube_description"], language=None)
+                st.caption("Instagram Reels"); st.code(cap["instagram"], language=None)
+                st.caption("TikTok"); st.code(cap["tiktok"], language=None)
+            st.download_button("download", data=r["path"].read_bytes(), file_name=f"{r['name']}-{r['file']}", mime="video/mp4",
+                               key=f"sh_dl2_{key}", width="stretch", type="tertiary", icon=":material/download:")
+            if r.get("youtube_id"):
+                st.caption(f"on YouTube Shorts · public {r.get('schedule', '')}")
+            elif r["yt"]["running"]:
+                st.progress(r["yt"]["progress"], text="uploading")
+            elif youtube.connected() and slots:
+                if r["yt"]["state"] == "failed":
+                    show_error(r["yt"]["error"], "warning", prefix="Upload stopped. ")
+                when = st.selectbox("goes public", slots, key=f"sh_when_{key}", label_visibility="collapsed",
+                                    format_func=lambda w: w.strftime("%a %d %b %H:%M").lower())
+                if st.button("upload to Shorts", key=f"sh_yt_{key}", width="stretch", icon=":material/upload:",
+                             help="Uploads as private; it goes public by itself at the chosen time. Uses about 1/6 of the daily "
+                                  "upload allowance, the same as a long video."):
+                    try:
+                        shorts.start_upload(r["pdir"], r["file"], when); st.rerun()
+                    except RuntimeError as e:
+                        st.error(str(e))
+    if pages > 1:
+        p1, p2, p3 = st.columns([1, 2, 1], vertical_alignment="center")
+        if p1.button("‹ previous", disabled=pg == 0, key="sh_prev", width="stretch"):
+            st.session_state["_sh_page"] = pg - 1; st.rerun()
+        p2.caption(f"page {pg + 1} of {pages}")
+        if p3.button("next ›", disabled=pg >= pages - 1, key="sh_next", width="stretch"):
+            st.session_state["_sh_page"] = pg + 1; st.rerun()
+
+
 if step == "planning":
     import calendar as _cal
     items = projects.list_projects(PROJECTS)
@@ -1854,10 +1928,13 @@ cover_done = (pdir / "thumbnail.png").exists()
 yt_done = bool(projects.meta(pdir).get("title")) and (pdir / "upload.txt").exists()
 video_done = (pdir / "video.mp4").exists()
 n_tracks_now = len(projects.audio_files(tracks_dir))
+_sh_all = shorts.all_shorts(PROJECTS)
+_sh_n, _sh_todo = len(_sh_all), sum(1 for r in _sh_all if not r["posted"])
 _upcoming = sorted(w for w in (planning.parse(p["schedule"]) for p in projects.list_projects(PROJECTS)) if w and w > dt.datetime.now())
 plan_n, plan_next = len(_upcoming), (_upcoming[0].strftime("%a %d %b").lower() if _upcoming else "")
 MENU_SUB = {"projects": f"{proj_count} video{'s' if proj_count != 1 else ''}" if proj_count else "start your first video",
             "planning": (f"{plan_n} planned · next {plan_next}" if plan_n else "nothing planned yet"),
+            "shorts": (f"{_sh_n} clips · {_sh_todo} to post" if _sh_n else "none yet"),
             "library": f"{lib_looked} of {len(_lf)} looked at" if _lf else "choose your folder",
             "settings": f"{keys_set} of 3 keys set"}
 with menu_slot:

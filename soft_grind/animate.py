@@ -150,6 +150,21 @@ class Animator:
         part.replace(out)
 
 
+def cache_key(pdir: Path, endpoint: str, template: dict, prompt: str) -> str | None:
+    """The same picture with the same model and wording gives the same loop: remember it, so it is never paid twice."""
+    import hashlib
+    src = shorts.source_picture(pdir)
+    if src is None:
+        return None
+    small = shorts.vertical(src).resize((90, 160))
+    h = hashlib.sha1(small.tobytes() + json.dumps([endpoint, template, prompt], sort_keys=True).encode())
+    return h.hexdigest()[:20]
+
+
+def cache_path(key: str) -> Path:
+    return settings.DATA_DIR / "cache" / "loops" / f"{key}.mp4"
+
+
 # ---------- background job ----------
 def status(pdir: Path) -> dict:
     j = projects.read_json(Path(pdir) / JOB)
@@ -179,6 +194,13 @@ def run(job_path: str) -> None:
 
     save(state="running", message="sending the picture", error="")
     token = os.getenv("SOFTGRIND_IMAGE_TOKEN") or settings.load_keys().get("image", "")
+    key = None if spec.get("mock") else cache_key(pdir, spec["endpoint"], spec["template"], spec["prompt"])
+    if key and cache_path(key).exists():                        # made before for this very picture: free
+        import shutil
+        shutil.copyfile(cache_path(key), pdir / shorts.LOOP)
+        projects.set_meta(pdir, loop_model=spec.get("model", "") + " (reused, free)", loop_made=time.strftime("%Y-%m-%d %H:%M"))
+        save(state="done", message="reused an earlier loop of this picture (free)", finished=time.time())
+        return
     try:
         if not spec.get("mock"):
             save(message="uploading the picture" if settings.load_keys().get("platform") else "sending the picture")
@@ -186,6 +208,10 @@ def run(job_path: str) -> None:
                                                      on_tick=lambda s: save(message=f"the AI is animating · {int(s)}s"))
         save(state="done", message="done", finished=time.time())
         projects.set_meta(pdir, loop_model=spec.get("model", ""), loop_made=time.strftime("%Y-%m-%d %H:%M"))
+        if key:
+            import shutil
+            cache_path(key).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(pdir / shorts.LOOP, cache_path(key))
         notify.send(f"{pdir.name}: the picture is animated", "Open soft grind. to make the shorts with it.", tags="sparkles")
     except AnimateError as e:
         save(state="failed", message="failed", error=str(e))
