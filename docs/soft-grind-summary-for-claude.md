@@ -55,6 +55,13 @@ Suno music → playlist → thumbnail → video → YouTube text → planning �
 - Redesign: overview tiles on the videos page (this week's upload days as a ring, ready, being made, credits), sidebar with icons,
   capsule buttons (solid indigo = main action, tinted = secondary, text = small actions), filled inputs, segmented tabs, softer cards.
 
+### Reels / low-cost round
+- Shorts: seamless loops (song tail blended into the head; zoom in-and-out; loop clips cut to whole repeats), start at the
+  fullest stretch of the song (RMS energy), shorts page with captions per platform, posted chips, zip download, bulk clips
+  (queue kind "shorts"), YouTube Shorts upload (private + publishAt, daily 18:00 slots). Batch makes 2 clips per video by default.
+- Cost: resumed music jobs collect already-paid Suno tasks first (task_ids vs done_tasks); AI loops cached by picture+model+prompt;
+  compilations reuse songs of earlier videos (no music purchase).
+
 ### Pages (sidebar menu)
 1. **videos** — one card per video with cover, headline, status pill, schedule, and **two buttons**: the *next step*
    (make the music / make the cover / make the video / write the text / upload to YouTube / open in YouTube Studio) and *open video*.

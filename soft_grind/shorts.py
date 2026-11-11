@@ -151,6 +151,23 @@ def captions(meta: dict, row: dict) -> dict:
     return {"youtube_title": yt_title, "youtube_description": yt_desc, "instagram": ig, "tiktok": tt}
 
 
+def bundle(rows: list[dict]) -> bytes:
+    """A zip of these clips plus captions.txt with the text for every platform, to move to a phone in one go."""
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    lines = []
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:              # mp4 is already compressed
+        for r in rows:
+            fname = f"{r['name']}-{r['file']}"
+            z.write(r["path"], fname)
+            c = r["caption"]
+            lines += [f"=== {fname} ===", "YOUTUBE SHORTS TITLE", c["youtube_title"], "YOUTUBE SHORTS DESCRIPTION",
+                      c["youtube_description"], "INSTAGRAM", c["instagram"], "TIKTOK", c["tiktok"], ""]
+        z.writestr("captions.txt", "\n".join(lines))
+    return buf.getvalue()
+
+
 def all_shorts(root: Path) -> list[dict]:
     """Every Short of every video, newest video first."""
     out = []

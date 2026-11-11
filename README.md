@@ -25,6 +25,12 @@ what goes out when, free Mon/Wed/Fri slots, plan an undated video in two clicks)
 - **free up space** on a finished video deletes its songs and working images and keeps the video, thumbnail and upload text.
 - **film dust** (video tab, video settings): faint dust specks like an old print, with a 20-second test before the long render.
 - **shorts** (video tab): 1–3 vertical 1080×1920 Shorts per video from different tracks, with a slow zoom (free), your own loop clip (e.g. Midjourney Animate → Loop) or an AI loop (AceDataCloud Veo/Luma, image key), headline, logo, optional film dust. The batch can make them too.
+- **shorts page**: every vertical clip in one place, captions for YouTube Shorts / Instagram Reels / TikTok, "posted on" chips,
+  a zip of the clips still to post (with captions.txt), bulk "make clips" for videos without, and YouTube Shorts upload with daily 18:00 slots.
+  Clips loop seamlessly (sound and picture) and start at the fullest part of a song. They cost nothing: same songs, same picture.
+- **compilations** (select videos → more): a new, longer video from their songs, no new music to pay for.
+- **never pay twice**: if the computer slept after a music request was paid, continue collects those songs first; an AI loop
+  of the same picture is reused for free.
 - **upload to YouTube** (settings, youtube card): connect once with a Google Cloud 'Desktop app' login file; then each finished video uploads with
   its title, description, tags, cover and schedule (private until the scheduled time). Optional in automatic mode.
 - **remote access** from your phone: see `docs/REMOTE.md` (Tailscale, always set a password first).

@@ -1789,6 +1789,10 @@ if step == "shorts":
     fl = st.segmented_control("show", ["to post", "posted", "all"], default="to post", key="sh_filter", required=True,
                               label_visibility="collapsed") or "to post"
     rows = [r for r in allsh if fl == "all" or (fl == "to post") == (not r["posted"])]
+    if rows:
+        st.download_button(f"download these {len(rows)} clips + captions (zip)", data=lambda rows=rows: shorts.bundle(rows),
+                           file_name=f"soft-grind-clips-{time.strftime('%Y%m%d')}.zip", mime="application/zip", key="sh_zip",
+                           type="tertiary", icon=":material/folder_zip:")
     if not rows:
         st.info("Nothing here. Make clips with the button above, or on a video's video tab." if not allsh else "Nothing in this list.")
     per_page = 8

@@ -185,3 +185,14 @@ def test_short_upload_to_youtube_saves_the_id(vid, monkeypatch):
     import pytest
     with pytest.raises(RuntimeError):
         shorts.start_upload(vid, f, dt.datetime(2026, 11, 21, 18, 0))                   # never twice
+
+
+def test_bundle_has_the_clips_and_one_captions_file(vid):
+    import io, zipfile
+    shorts.make_all(vid, 2, 6, "zoom")
+    rows = shorts.all_shorts(vid.parent)
+    z = zipfile.ZipFile(io.BytesIO(shorts.bundle(rows)))
+    names_ = z.namelist()
+    assert "captions.txt" in names_ and sum(n.endswith(".mp4") for n in names_) == 2
+    txt = z.read("captions.txt").decode()
+    assert "INSTAGRAM" in txt and "TIKTOK" in txt and "the city sleeps, we don't." in txt
