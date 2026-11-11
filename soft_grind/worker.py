@@ -24,12 +24,43 @@ def _existing_titles(tracks_dir: Path) -> set[str]:
     return {re.sub(r"^\d+\s*[-_.]\s*", "", f.stem).strip().lower() for f in projects.audio_files(tracks_dir)}
 
 
-def generate_music(pdir: Path, spec: dict, token: str, note, task_started, request_done, check_cancel, offset: int = 0) -> None:
-    """Make `spec['n_req']` Suno requests (2 tracks each) into <pdir>/tracks. The callbacks report progress."""
+def generate_music(pdir: Path, spec: dict, token: str, note, task_started, request_done, check_cancel, offset: int = 0,
+                   pending: list[str] | tuple = (), task_done=None) -> None:
+    """Make `spec['n_req']` Suno requests (2 tracks each) into <pdir>/tracks. The callbacks report progress.
+    `pending` = requests that were already paid for but whose songs never arrived (the computer slept, the window closed):
+    their songs are collected first and count towards n, so continuing never pays twice."""
     tracks_dir = pdir / "tracks"
     tracks_dir.mkdir(parents=True, exist_ok=True)
     client = SunoClient(token, mock=spec["mock"], mock_dir=pdir)
     n = spec["n_req"]
+
+    def save_clips(clips, scene, label):
+        for c in clips:
+            taken = _existing_titles(tracks_dir)
+            k = len(projects.audio_files(tracks_dir)) + 1
+            title = names.suggest([scene], 1, taken, spec.get("mood_key", "calm"), style=spec.get("name_style", "mix"))[0]
+            ext = ".wav" if c["audio_url"].endswith(".wav") else ".mp3"
+            download(c["audio_url"], tracks_dir / f"{k:02d} - {playlist.safe_name(title)}{ext}")
+            note(label)
+
+    recovered = 0
+    for tid in list(pending)[:n]:
+        check_cancel()
+        scene = spec["scenes"][(offset + recovered) % len(spec["scenes"])] if spec["scenes"] else "soft grind"
+        label = f"collecting songs that were already paid for ({recovered + 1}/{len(pending)})"
+        note(label)
+        try:
+            save_clips(client.wait(tid, on_tick=lambda sec, label=label: (check_cancel(), note(f"{label} … {int(sec)}s"))), scene, label)
+        except SunoError:
+            if task_done:
+                task_done(tid)                                         # gone at Suno's side: nothing to collect, ask anew
+            continue
+        if task_done:
+            task_done(tid)
+        recovered += 1
+        request_done(recovered)
+    offset += recovered
+    n -= recovered
     for i in range(n):
         check_cancel()
         scene = spec["scenes"][(i + offset) % len(spec["scenes"])] if spec["scenes"] else "soft grind"
@@ -46,14 +77,10 @@ def generate_music(pdir: Path, spec: dict, token: str, note, task_started, reque
             check_cancel()
             note(f"{label} … {int(sec)}s")
 
-        for c in client.wait(tid, on_tick=tick):
-            taken = _existing_titles(tracks_dir)
-            k = len(projects.audio_files(tracks_dir)) + 1
-            title = names.suggest([scene], 1, taken, spec.get("mood_key", "calm"), style=spec.get("name_style", "mix"))[0]
-            ext = ".wav" if c["audio_url"].endswith(".wav") else ".mp3"
-            download(c["audio_url"], tracks_dir / f"{k:02d} - {playlist.safe_name(title)}{ext}")
-            note(label)
-        request_done(i + 1)
+        save_clips(client.wait(tid, on_tick=tick), scene, label)
+        if task_done:
+            task_done(tid)
+        request_done(recovered + i + 1)
 
 
 def run(job_path: str) -> None:

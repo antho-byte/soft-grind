@@ -65,6 +65,10 @@ def run(job_path: str) -> None:
         have, want = len(projects.audio_files(pdir / "tracks")), spec["n_req"] * 2
         if have < want:
             remaining = spec["n_req"] - have // 2
+            ids = job.get("task_ids", [])
+            done = job["done_tasks"] if "done_tasks" in job else ids[:have // 2]     # older jobs: the first ones arrived
+            pending = [t for t in ids if t not in done]                              # paid for, songs never collected
+            job["done_tasks"] = list(done)
             style = spec["style"]
             if spec.get("improve_prompt") and ai_client and not projects.meta(pdir).get("prompt_improved"):
                 at(0, 0.0, "improving the music prompt")
@@ -75,7 +79,8 @@ def run(job_path: str) -> None:
             worker.generate_music(pdir, sub, suno_token, note=lambda m: at(0, job.get("_done", 0) / max(1, remaining), m),
                                   task_started=lambda t: save(task_ids=job.get("task_ids", []) + [t]),
                                   request_done=lambda d: (job.update(_done=d), at(0, d / max(1, remaining), f"{d}/{remaining} requests")),
-                                  check_cancel=check_cancel, offset=have // 2)
+                                  check_cancel=check_cancel, offset=have // 2, pending=pending,
+                                  task_done=lambda t: save(done_tasks=job.get("done_tasks", []) + [t]))
 
         # 2 image
         check_cancel(); at(1, 0.0, "looking through the library")

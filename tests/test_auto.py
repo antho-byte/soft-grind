@@ -99,3 +99,27 @@ def test_whole_video_with_ai_written_text():
         assert m["text_parts"]["suffix"] == "lofi city pop for late nights" and "00:00" in m["description"]
     finally:
         os.environ.pop("SOFTGRIND_AI_BASE_URL", None)
+
+
+def test_continuing_collects_paid_songs_instead_of_paying_again(tmp_path, monkeypatch):
+    """The computer slept after a request was paid: on continue its songs are fetched, and only the rest is new."""
+    from soft_grind import worker
+    calls = {"generate": 0, "wait": []}
+
+    class Fake:
+        def __init__(self, *a, **k): pass
+        def generate(self, *a, **k):
+            calls["generate"] += 1; return f"new-{calls['generate']}"
+        def wait(self, tid, on_tick=None):
+            calls["wait"].append(tid)
+            if tid == "gone": raise worker.SunoError("expired")
+            return [{"audio_url": f"https://x/{tid}-{k}.mp3"} for k in (1, 2)]
+    monkeypatch.setattr(worker, "SunoClient", Fake)
+    monkeypatch.setattr(worker, "download", lambda url, dest: dest.write_bytes(b"x"))
+    done = []
+    spec = {"mock": True, "n_req": 3, "scenes": ["rainy window"], "model": "m", "minutes": 6, "style": "A", "mood_key": "calm"}
+    worker.generate_music(tmp_path, spec, "", lambda m: None, lambda t: None, lambda d: None, lambda: None,
+                          pending=["paid-1", "gone"], task_done=done.append)
+    assert calls["generate"] == 2                                     # 3 wanted: 1 collected, the expired one asked anew
+    assert calls["wait"][:2] == ["paid-1", "gone"] and "paid-1" in done and "gone" in done
+    assert len(list((tmp_path / "tracks").iterdir())) == 6

@@ -397,7 +397,7 @@ def prepare_auto(pdir: Path, spec: dict, message: str = "queued") -> None:
     (pdir / CANCEL).unlink(missing_ok=True)
     prev = read_json(pdir / AUTO)                                     # keep the list of paid requests across a resume
     write_json(pdir / AUTO, {"state": "queued", "spec": spec, "step": 0, "progress": 0.0, "message": message, "updated": time.time(),
-                             "task_ids": prev.get("task_ids", [])})
+                             "task_ids": prev.get("task_ids", []), "done_tasks": prev.get("done_tasks", [])})
 
 
 # ---------- batch: several whole videos in one go ----------
