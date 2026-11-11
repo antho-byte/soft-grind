@@ -40,6 +40,7 @@ TABS = [("music", "music"), ("thumbnail", "cover"), ("video", "video")]         
 VIDEO_STEPS = {"music", "thumbnail", "video"}
 TITLES = {
     "projects": ("your videos.", "every video you made, with its cover. open one to keep going."),
+    "review": ("review.", "check each finished video once, then send it on its way. edits are saved as you type."),
     "planning": ("planning.", "which video goes out on which day. free upload slots: monday, wednesday and friday at 15:00."),
     "library": ("the images.", "your folder of images: let the app look at them, then match them to your videos."),
     "settings": ("settings.", "keys, folders, security, and a check that everything is ready."),
@@ -431,7 +432,7 @@ tracks = st.session_state["tracks"]
 imgs_dir = pdir / "images"
 
 topnav_slot = st.container(key="topnav")                  # the sidebar is hidden behind a button on phones, so the menu is repeated here
-crumb = {"projects": "all videos", "planning": "planning", "library": "images", "settings": "settings"}.get(step, f"videos › {name}")
+crumb = {"projects": "all videos", "review": "videos › review", "planning": "planning", "library": "images", "settings": "settings"}.get(step, f"videos › {name}")
 theme.page_title(crumb, *TITLES[step])
 tabs_slot = st.container(key="vtabs") if step in VIDEO_STEPS else None
 if st.session_state.get("_last_view") != (step, name):                    # a new page: start at the top, not where the last one was scrolled
@@ -440,7 +441,8 @@ if st.session_state.get("_last_view") != (step, name):                    # a ne
 
 
 if step == "settings":
-    with st.container(key="card_keys"):
+    T_KEYS, T_CONN, T_STORE, T_SEC, T_CHECK = st.tabs(["keys", "youtube and phone", "folders and video", "security", "check my setup"])
+    with T_KEYS, st.container(key="card_keys"):
         st.markdown("**keys**")
         st.caption("Without a key the app runs in practice mode: fake songs and images, no cost. Keys are stored on this computer only.")
         st.caption("suno (AceDataCloud)")
@@ -468,7 +470,7 @@ if step == "settings":
         if st.button("save keys on this computer", type="primary"):
             settings.save_keys(token, img_token, ai_token, ai_model, st.session_state["_cfg_platform"])
             st.success("saved: you won't need to paste them again")
-    with st.container(key="card_folders"):
+    with T_STORE, st.container(key="card_folders"):
         st.markdown("**folders and video**")
         st.session_state["_cfg_crossfade"] = st.number_input("crossfade (s)", 0.0, 10.0, st.session_state["_cfg_crossfade"], 0.5,
                                                              help="The overlap between songs. The timestamps in the description use it.")
@@ -491,7 +493,7 @@ if step == "settings":
                 if skipped:
                     st.warning("left in place (already has files in the new folder): " + ", ".join(skipped))
         st.caption(f"your keys live in `{settings.DATA_DIR}`, outside the app folder")
-    with st.container(key="card_notify"):
+    with T_CONN, st.container(key="card_notify"):
         st.markdown("**phone messages**")
         notify_on = st.toggle("tell my phone when a video is ready, or needs me", value=notify.enabled(), key="notify_toggle")
         if notify_on != notify.enabled():
@@ -509,7 +511,7 @@ if step == "settings":
                        "The name above is the secret that lets a phone receive them: don't share it.")
         else:
             st.caption("Off. Turn it on to get a message on your phone when a video is ready, needs you, or stops. Free, no account.")
-    with st.container(key="card_youtube"):
+    with T_CONN, st.container(key="card_youtube"):
         st.markdown("**youtube**")
         disc = st.toggle("say in new descriptions that the music is made with AI tools", value=settings.ai_disclosure(), key="ai_disclosure",
                          help="Recommended: being open about it protects the channel if YouTube's rules on AI music get stricter. "
@@ -543,7 +545,7 @@ if step == "settings":
                 if st.button("use a different login file", type="tertiary"):
                     youtube._client_file().unlink(missing_ok=True)
                     st.rerun()
-    with st.container(key="card_security"):
+    with T_SEC, st.container(key="card_security"):
         st.markdown("**security**")
         pw_new = st.text_input("app password", type="password", placeholder="set or change the password (8+ characters)",
                                help="Asked every time the app opens. Stored as a scrambled hash, not as text.")
@@ -573,20 +575,18 @@ if step == "settings":
             st.caption("Right now only this computer can open the app.")
         with st.expander("how to reach the app from your phone or work laptop, away from home"):
             st.markdown(REMOTE_HELP)
-    with st.container(key="card_setup"):
+    with T_CHECK, st.container(key="card_setup"):
         st.markdown("**check my setup**")
         st.caption("Each key is tested with a free question that does not make anything, so this costs nothing. "
                    "The AI key uses a few words of text (a fraction of a cent).")
-        if st.button("check again", type="primary"):
-            st.session_state.pop("_setup_results", None)
-        if "_setup_results" not in st.session_state:
+        if st.button("check again" if "_setup_results" in st.session_state else "check my setup", type="primary", key="run_setup"):
             with st.spinner("checking…"):
                 st.session_state["_setup_results"] = health.run_all(token, img_token, ai_token, ai_model, SAVED)
         label = {"ok": "ok", "warn": "check", "fail": "fix"}
-        for r in st.session_state["_setup_results"]:
+        for r in st.session_state.get("_setup_results", []):
             st.markdown(f'<div class="sg-chk"><span class="sg-badge {r["status"]}">{label[r["status"]]}</span>'
                         f'<b>{r["name"]}</b><span class="d">{r["detail"]}</span></div>', unsafe_allow_html=True)
-    with st.container(key="card_diag"):
+    with T_CHECK, st.container(key="card_diag"):
         st.markdown("**diagnostics**")
         st.caption("Something not working? Copy this and send it to me. Keys and passwords are removed automatically.")
         diag = health.diagnostics([token, img_token, ai_token, SAVED.get("platform", "")])
@@ -642,6 +642,8 @@ if step == "projects":
             st.session_state["_auto_open"] = False
             st.rerun()
 
+    dash_slot = st.container()                                   # overview cards, filled further down once the numbers are known
+    toolbar_slot = st.container()                                # filters, search and 'new video' first; the forms open below them
     disk = health.check_disk(PROJECTS)
     if disk["status"] != "ok":
         st.warning(f"Disk space: {disk['detail']}. Archive or delete finished videos below.")
@@ -772,7 +774,7 @@ if step == "projects":
               "busy": ("making music", "making the video", "making it", "uploading", "in the queue")}
     all_items = projects.list_projects(PROJECTS)
     counts = {g: sum(1 for i in all_items if stages is None or i["stage"] in stages) for g, stages in GROUPS.items()}
-    fa, fb, fc = st.columns([3.2, 1.6, 1], vertical_alignment="bottom")
+    fa, fb, fc = toolbar_slot.columns([3.2, 1.6, 1], vertical_alignment="bottom")
     flt = fa.segmented_control("show", [g for g in GROUPS if g == "all" or counts[g]], key="vid_filter", default="all",
                                format_func=lambda g: f"{g} {counts[g]}", label_visibility="collapsed", required=True) or "all"
     query = fb.text_input("search", placeholder="search", key="vid_search", label_visibility="collapsed").strip().lower()
@@ -810,8 +812,12 @@ if step == "projects":
         sel = [i for i in items if st.session_state.get(f"sel_{i['name']}")]
         with st.container(key="bulkbar"):
             if not sel:
-                b0, b1 = st.columns([5, 1], vertical_alignment="center")
+                b0, b2, b1 = st.columns([3.6, 1.6, 1], vertical_alignment="center")
                 b0.caption(f"{len(items)} video{'s' if len(items) != 1 else ''} · tick a name to select it for bulk actions")
+                n_ready = sum(1 for i in projects.list_projects(PROJECTS) if i["stage"] == "ready" and not i["approved"])
+                if n_ready and b2.button(f"review {n_ready} finished", key="go_review", type="primary", width="stretch",
+                                         help="Check each finished video in turn: watch, read the text, then approve or skip."):
+                    st.session_state.update(step="review", _review_i=0); st.rerun()
                 if b1.button("select all", type="tertiary", key="sel_all", width="stretch"):
                     for i in items: st.session_state[f"sel_{i['name']}"] = True
                     st.rerun()
@@ -1246,39 +1252,50 @@ if step == "thumbnail":
     else:
         src_img.load()
         for w in T.image_warnings(src_img): st.warning(w)
-        st.caption(f"using {src_name}. Check the image for garbled Japanese, signatures, brand logos, number plates; "
-                   "if it looks like a Hiroshi Nagai painting, do a reverse image search.")
+        st.caption(f"picture: {src_name} · check it for garbled text, signatures and logos before you publish.")
         prev = st.container(key="card_preview")          # shown first, filled once the settings are known
         with st.container(key="card_settings"):
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2 = st.columns([1.15, 1], gap="large")
             with c1:
-                quote = sticky(st.text_input, "quote", "quote", pm_.get("quote") or "you've got this.")
+                quote = sticky(st.text_input, "headline", "quote", pm_.get("quote") or "you've got this.")
                 for w in T.check_quote(quote): st.caption(f":orange[{w}]")
                 if quote in used_quotes(name):
-                    st.caption(":orange[another video already uses this headline: press new headline]")
+                    st.caption(":orange[another recent video already uses this headline: pick another one]")
+                free_h = headlines.unused(used_quotes(name))
+                grp = {h: g for g, hs in headlines.GROUPS.items() for h in hs}
+
+                def _pick_h():
+                    h_ = st.session_state.get(f"hl_pick_{name}")
+                    if h_:
+                        set_headline(h_)
+                        st.session_state[f"hl_pick_{name}"] = None
+                st.selectbox("…or pick one from your list", [None] + free_h, key=f"hl_pick_{name}", on_change=_pick_h,
+                             format_func=lambda h: "choose a headline" if h is None else f"{h}   · {grp.get(h, '').replace('_', ' & ')}",
+                             help="Your own headlines that no recent video uses.")
                 hb1, hb2 = st.columns(2)
-                hb1.button("new headline", on_click=lambda: st.session_state.update(_headline_req="random"),
-                           help="A fresh headline that fits the mood and has not been used in another video.")
-                hb2.button("match to image", on_click=lambda: st.session_state.update(_headline_req="ai"),
-                           disabled=not (ai_token and not ai_mock), help="The AI writes a headline for this picture.")
-                subline = sticky(st.text_input, "subline (optional)", "subline", "")
+                hb1.button("new headline", on_click=lambda: st.session_state.update(_headline_req="random"), width="stretch",
+                           help="A headline from your list that fits the scenes and the mood, and that no recent video uses.")
+                hb2.button("match to image", on_click=lambda: st.session_state.update(_headline_req="ai"), width="stretch",
+                           disabled=not (ai_token and not ai_mock), help="The AI picks the headline from your list that fits this picture best.")
             with c2:
-                cyber = sticky(st.toggle, "night city style", "cyber", bool(lay_saved.get("cyber", False)))
-                tag = st.text_input("tag box", lay_saved.get("tag", "CYBERPUNK SYNTHWAVE"), disabled=not cyber, key=f"w_{name}_tag")
-                logo = st.selectbox("logo colour", ["auto", "navy", "white"], ["auto", "navy", "white"].index(lay_saved.get("logo", "auto")),
-                                    key=f"w_{name}_logo")
-                hv = sticky(st.toggle, "headline on the video image", "hv", projects.meta(pdir).get("headline_on_video", True),
-                            help="The picture under the music uses the thumbnail design, headline included.")
-            with c3:
+                size = sticky(st.slider, "text size", "size", float(lay_saved.get("size", 1.5)), min_value=0.5, max_value=1.6, step=0.05,
+                              help="1.50 is the house style. Longer headlines shrink by themselves if they would not fit.")
                 anchor = st.selectbox("position", T.ANCHORS, T.ANCHORS.index(lay_saved.get("anchor", "top-center")
                                                                               if lay_saved.get("anchor") in T.ANCHORS else "top-center"),
                                       key=f"w_{name}_anchor",
                                       help=f"The house style is top-center. The calmest area of this image is {T.suggest_anchor(src_img, quote)}.")
-                size = sticky(st.slider, "text size", "size", float(lay_saved.get("size", 1.5)), min_value=0.5, max_value=1.6, step=0.05,
-                              help="1.50 is the house style. Longer headlines shrink by themselves if they would not fit.")
-            with c4:
-                dx = st.slider("nudge x", -300, 300, int(lay_saved.get("dx", 0)), 5, key=f"w_{name}_dx")
-                dy = st.slider("nudge y", -300, 300, int(lay_saved.get("dy", 0)), 5, key=f"w_{name}_dy")
+                hv = sticky(st.toggle, "headline on the video picture too", "hv", projects.meta(pdir).get("headline_on_video", True),
+                            help="The picture under the music uses the thumbnail design, headline included.")
+            with st.expander("more: subline, logo colour, nudge, night city style"):
+                m1, m2, m3 = st.columns(3)
+                subline = m1.text_input("subline (optional)", st.session_state.get(f"_s_{name}_subline", ""), key=f"w_{name}_subline")
+                st.session_state[f"_s_{name}_subline"] = subline
+                logo = m1.selectbox("logo colour", ["auto", "navy", "white"], ["auto", "navy", "white"].index(lay_saved.get("logo", "auto")),
+                                    key=f"w_{name}_logo")
+                dx = m2.slider("nudge left / right", -300, 300, int(lay_saved.get("dx", 0)), 5, key=f"w_{name}_dx")
+                dy = m2.slider("nudge up / down", -300, 300, int(lay_saved.get("dy", 0)), 5, key=f"w_{name}_dy")
+                cyber = m3.toggle("night city style", bool(lay_saved.get("cyber", False)), key=f"w_{name}_cyber")
+                tag = m3.text_input("tag box", lay_saved.get("tag", "CYBERPUNK SYNTHWAVE"), disabled=not cyber, key=f"w_{name}_tag")
         lay_ = T.Layout(anchor, size, dx, dy)
         thumb = T.render_thumbnail(src_img, quote, lay_, cyber, tag, subline, logo_mode=logo)
         still = T.render_still(src_img, cyber, logo_mode=logo, quote=quote if hv else None, layout=lay_, tag=tag, subline=subline)
@@ -1480,17 +1497,22 @@ if step == "video":
 
     # ---- the form (right)
     with form_slot:
-        status_slot = st.empty()
+        s1_, s2_ = st.columns([2, 1.2], vertical_alignment="center")
+        status_slot = s1_.empty()
+        s2_.button("rewrite with AI", type="tertiary", key="rewrite_ai", width="stretch", disabled=not (ai_token and not ai_mock),
+                   on_click=lambda: st.session_state.update(_regen_req=name, _regen_mode="ai"),
+                   help="New title phrase, description, pinned comment and question for THIS video, different from your other videos. "
+                        "The old text stays available under 'undo'.")
         title = st.text_input("Title", init["title"], key=f"w_{name}_title{ver}", max_chars=100)
         st.caption(f"{len(title)}/100 characters · the first 60 matter most")
         desc = st.text_area("Description", init["description"], height=220, key=f"w_{name}_desc{ver}")
         tags = st.text_area("Tags", init["tags"], height=70, key=f"w_{name}_tags{ver}")
         pinned = st.text_input("Pinned comment", init["pinned"], key=f"w_{name}_pin{ver}")
         st.markdown("**Scheduled date**")
-        d1, d2, d3 = st.columns([1.2, 1, 1.6])
-        sdate = d1.date_input("date", _slot.date(), key=f"w_{name}_date{ver}", label_visibility="collapsed")
+        d1, d2 = st.columns([1.3, 1])
+        sdate = d1.date_input("date", _slot.date(), key=f"w_{name}_date{ver}", label_visibility="collapsed", format="DD/MM/YYYY")
         stime = d2.time_input("time (Amsterdam)", _slot.time(), key=f"w_{name}_time{ver}", label_visibility="collapsed")
-        d3.caption("Mon / Wed / Fri 15:00 · next free slot suggested · upload as private and scheduled")
+        st.caption("Mon / Wed / Fri 15:00 · the next free slot is suggested · it uploads as private and goes public by itself")
         for issue in metadata.validate(title, tracks, pinned): st.warning(issue)
         if "<" in title or ">" in title:
             st.warning("YouTube titles cannot contain < or >.")
@@ -1605,6 +1627,70 @@ if step == "video":
         else:
             st.caption("Make the video first (left). Then it can go to YouTube from here.")
 
+
+
+if step == "review":
+    queue_ = [i for i in projects.list_projects(PROJECTS) if i["stage"] == "ready" and not i["approved"]]
+    queue_.sort(key=lambda i: i["schedule"] or "9999")                      # the one that goes out first, first
+    if not queue_:
+        with st.container(key="card_review_done"):
+            st.markdown("**all checked.** nothing is waiting for a review.")
+            st.button("back to the videos", on_click=go, args=("projects",), type="primary")
+    else:
+        ri = min(st.session_state.get("_review_i", 0), len(queue_) - 1)
+        cur = queue_[ri]; rp = cur["path"]; rm = projects.meta(rp)
+        h1, h2, h3, h4 = st.columns([3, 0.7, 0.7, 1.2], vertical_alignment="center")
+        h1.markdown(f'<span class="sg-proj-meta">video {ri + 1} of {len(queue_)} · {html.escape(cur["name"])}'
+                    + (f' · goes out {html.escape(cur["schedule"])}' if cur["schedule"] else " · no date yet") + "</span>",
+                    unsafe_allow_html=True)
+        if h2.button("‹ previous", key="rv_prev", disabled=ri == 0, width="stretch"):
+            st.session_state["_review_i"] = ri - 1; st.rerun()
+        if h3.button("next ›", key="rv_next", disabled=ri >= len(queue_) - 1, width="stretch"):
+            st.session_state["_review_i"] = ri + 1; st.rerun()
+        h4.button("back to the videos", key="rv_back", on_click=go, args=("projects",), type="tertiary", width="stretch")
+        st.progress(ri / len(queue_))
+        lc, rc = st.columns([1.35, 1], gap="large")
+        with lc, st.container(key="card_review_media"):
+            vp_ = rp / "video.mp4"; pv_ = rp / "preview.mp4"
+            if not pv_.exists() or pv_.stat().st_mtime < vp_.stat().st_mtime:
+                try:
+                    video.make_preview(vp_, pv_)
+                except Exception:
+                    pv_ = vp_
+            st.video(str(pv_))
+            st.caption(f"{cur['tracks']} songs · {round(cur['seconds'] / 60)} min · the player shows the first 90 seconds")
+            if (rp / "thumbnail.png").exists():
+                theme.show_image(rp / "thumbnail.png", caption="thumbnail", width="stretch")
+        with rc, st.container(key="card_review_text"):
+            st.markdown(f'<div class="sg-proj-quote">{html.escape(cur["quote"])}</div>', unsafe_allow_html=True)
+            rv = st.session_state.get(f"_rv_v_{cur['name']}", 0)
+            t_new = st.text_input("Title", rm.get("title", ""), max_chars=100, key=f"rv_title_{cur['name']}_{rv}")
+            d_new = st.text_area("Description", rm.get("description", ""), height=260, key=f"rv_desc_{cur['name']}_{rv}")
+            if (t_new, d_new) != (rm.get("title", ""), rm.get("description", "")):
+                projects.set_meta(rp, title=t_new, description=d_new)
+                tags_ = [t.strip() for t in (rm.get("tags") or "").split(",") if t.strip()]
+                (rp / "upload.txt").write_text(metadata.upload_txt(t_new, d_new, tags_, rm.get("pinned", ""), rm.get("schedule", "")),
+                                               encoding="utf-8")
+                st.markdown('<span class="sg-saved">✓ saved</span>', unsafe_allow_html=True)
+            for issue in metadata.validate(t_new, [{"duration": 1}] * max(3, cur["tracks"]), rm.get("pinned", "")):
+                st.caption(f":orange[{issue}]")
+            st.caption(f"pinned comment: {rm.get('pinned', '')}")
+            a1, a2 = st.columns(2)
+            if youtube.connected():
+                if a1.button("approve and upload", type="primary", key="rv_ok", width="stretch",
+                             help="Uploads as private; it goes public by itself on its date."):
+                    added = projects.start_queue("upload", [rp])
+                    st.toast(f"{cur['name']} is in the upload queue" if added else "it could not be added to the upload queue")
+                    st.rerun()                                              # it leaves the list, the next one shows
+            else:
+                if a1.button("approve", type="primary", key="rv_ok", width="stretch",
+                             help="Connect YouTube in settings to upload from here. Approved videos are marked on their card."):
+                    projects.set_meta(rp, approved=time.strftime("%Y-%m-%d %H:%M"))
+                    st.session_state["_review_i"] = ri + 1; st.rerun()
+            if a2.button("open this video", key="rv_open", width="stretch"):
+                open_project(cur["name"], "ready"); st.rerun()
+            if rm.get("approved"):
+                st.caption(f"approved {rm['approved']}")
 
 
 if step == "planning":
@@ -1722,7 +1808,7 @@ MENU_SUB = {"projects": f"{proj_count} video{'s' if proj_count != 1 else ''}" if
             "settings": f"{keys_set} of 3 keys set"}
 with menu_slot:
     for sid, label in MENU:
-        active = step == sid or (sid == "projects" and step in VIDEO_STEPS)
+        active = step == sid or (sid == "projects" and (step in VIDEO_STEPS or step == "review"))
         st.button(label, key=f"menu_{sid}", type="primary" if active else "secondary", width="stretch", on_click=go, args=(sid,))
         st.markdown(f'<div class="sg-step-sub">{MENU_SUB[sid]}</div>', unsafe_allow_html=True)
 with topnav_slot:                                                                           # visible on phones only (CSS)

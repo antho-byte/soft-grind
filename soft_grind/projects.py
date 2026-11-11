@@ -238,7 +238,7 @@ def list_projects(root: Path) -> list[dict]:
                 "has_thumbnail": (p / "thumbnail.png").exists(), "has_upload": bool(m.get("title")) and (p / "upload.txt").exists(),
                 "has_video": (p / "video.mp4").exists(), "title": m.get("title", ""), "schedule": m.get("schedule", ""),
                 "render": render_status(p), "auto": auto_status(p), "credits": round(spent.get(p.name, 0.0), 2),
-                "yt": youtube_status(p), "youtube_id": m.get("youtube_id", ""), "film": bool(m.get("film_look")),
+                "yt": youtube_status(p), "youtube_id": m.get("youtube_id", ""), "film": bool(m.get("film_look")), "approved": m.get("approved", ""),
                 "publishes_later": bool(m.get("youtube_id")) and m.get("schedule", "") > time.strftime("%Y-%m-%d %H:%M"),
                 "job": job_status(p), "updated": max([f.stat().st_mtime for f in p.rglob("*") if f.is_file()] or [p.stat().st_mtime])}
         info["stage"] = stage(info)

@@ -145,6 +145,7 @@ def test_settings_page_saves_keys_and_the_setup_check_runs():
     [t for t in at.text_input if t.label == "API token"][0].set_value("fake-suno-key-123"); at.run()
     click(at, label="save keys on this computer"); assert settings.load_keys()["suno"] == "fake-suno-key-123"
     assert any("check my setup" in m.value for m in at.markdown)
+    click(at, "run_setup")                                                             # runs only when asked (it was slow on every visit)
     names = [re.sub(r"<[^>]+>", "|", m.value).split("|") for m in at.markdown if "sg-chk" in m.value]
     flat = " ".join(" ".join(n) for n in names); assert "projects folder" in flat and "background jobs" in flat and "Suno key" in flat
     assert any("soft grind. diagnostics" in c.value for c in at.code) and "fake-suno-key-123" not in " ".join(c.value for c in at.code)
@@ -309,3 +310,25 @@ def test_songs_can_be_removed_and_reordered_on_the_music_tab():
     click(at, "dn_0")                                                                  # rain moves down
     assert [f.name for f in projects.audio_files(p / "tracks")] == ["01 - train.wav", "02 - rain.wav"]
     assert projects.meta(p).get("songs_changed")
+
+
+def test_review_steps_through_finished_videos_saves_edits_and_approves():
+    settings, projects = home()
+    from soft_grind import video as V
+    from soft_grind.suno import _write_tone
+    root = settings.projects_dir()
+    for n, sched in (("mix-001", "2026-12-04 15:00"), ("mix-002", "2026-12-02 15:00")):
+        p = root / n; (p / "tracks").mkdir(parents=True)
+        for k in range(3): _write_tone(p / "tracks" / f"0{k+1} - t{k}.wav", 3, 220 + 40 * k)
+        Image.new("RGB", (1920, 1080), (40, 50, 140)).save(p / "still.png"); Image.new("RGB", (1280, 720)).save(p / "thumbnail.png")
+        V.render_video(projects.audio_files(p / "tracks"), p / "still.png", p / "video.mp4", [3, 3, 3], 0.5, 0, 0)
+        projects.set_meta(p, quote=f"{n}.", title=f"{n} title", description="d", tags="lofi", pinned="what?", schedule=sched)
+        (p / "upload.txt").write_text("x", encoding="utf-8")
+    at = open_app()
+    click(at, "go_review"); assert at.session_state["step"] == "review"
+    assert any("video 1 of 2 · mix-002" in m.value for m in at.markdown)           # the one that goes out first, first
+    [t for t in at.text_input if t.label == "Title"][0].set_value("better title."); at.run(); assert not at.exception
+    assert projects.meta(root / "mix-002")["title"] == "better title." and "better title." in (root / "mix-002" / "upload.txt").read_text()
+    click(at, "rv_ok")                                                                 # not connected to youtube: approve only
+    assert projects.meta(root / "mix-002").get("approved") and any("mix-001" in m.value for m in at.markdown)
+    click(at, "rv_ok"); assert any("all checked" in m.value for m in at.markdown)
