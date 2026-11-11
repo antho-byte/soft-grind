@@ -32,9 +32,54 @@ def ffmpeg_exe() -> str:
     raise VideoError("ffmpeg was not found. Restart the app so it can install it (pip install imageio-ffmpeg).")
 
 
-def mix_graph(n: int, first_input: int, crossfade: float, total: float, fade_in: float, fade_out: float) -> str:
-    """Filter graph ending in the label [mix]: n inputs -> equal format -> chained crossfades -> fade in / out."""
-    parts = [f"[{first_input + i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]" for i in range(n)]
+TRACK_LUFS = -16.0          # every song is first brought to this level, so no song jumps out or sinks away in the mix
+MAX_GAIN = 9.0
+
+
+def track_loudness(path: Path) -> float | None:
+    """Integrated loudness (LUFS) of one song, cached next to it (keyed by size and time, so a changed file is measured again)."""
+    path = Path(path)
+    cache = path.parent / ".levels.json"
+    try:
+        db = json.loads(cache.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        db = {}
+    st = path.stat()
+    key = f"{path.name}|{st.st_size}|{int(st.st_mtime)}"
+    if key in db:
+        return db[key]
+    r = subprocess.run([ffmpeg_exe(), "-hide_banner", "-nostats", "-i", str(path), "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    found = re.findall(r"I:\s+(-?\d+(?:\.\d+)?) LUFS", r.stderr)
+    lufs = float(found[-1]) if found else None
+    if lufs is not None and lufs < -69:                       # silence: no meaningful level
+        lufs = None
+    db = {k: v for k, v in db.items() if not k.startswith(path.name + "|")}
+    db[key] = lufs
+    try:
+        cache.write_text(json.dumps(db), encoding="utf-8")
+    except OSError:
+        pass
+    return lufs
+
+
+def track_gains(tracks: list[Path], on_progress=None) -> list[float]:
+    """dB per song to bring it to TRACK_LUFS (limited to +/- MAX_GAIN, so a strange measurement can never blow a song up)."""
+    out = []
+    for i, t in enumerate(tracks):
+        lufs = track_loudness(t)
+        out.append(0.0 if lufs is None else round(max(-MAX_GAIN, min(MAX_GAIN, TRACK_LUFS - lufs)), 2))
+        if on_progress:
+            on_progress((i + 1) / max(1, len(tracks)))
+    return out
+
+
+def mix_graph(n: int, first_input: int, crossfade: float, total: float, fade_in: float, fade_out: float,
+              gains: list[float] | None = None) -> str:
+    """Filter graph ending in the label [mix]: n inputs -> equal format (and level) -> chained crossfades -> fade in / out."""
+    g = gains or [0.0] * n
+    parts = [f"[{first_input + i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo"
+             + (f",volume={g[i]:g}dB" if g[i] else "") + f"[a{i}]" for i in range(n)]
     last = "a0"
     for i in range(1, n):
         parts.append(f"[{last}][a{i}]acrossfade=d={crossfade:g}:c1=tri:c2=tri[x{i}]")
@@ -212,10 +257,11 @@ def render_video(tracks: list[Path], still: Path, out: Path, durations: list[flo
 
     if on_progress:
         on_progress(0.0, "measuring loudness")
-    audio_graph = mix_graph(n, 0, cf, total, fade_in, fade_out)
-    m = measure_loudness(list(tracks), audio_graph, total, prog(0.0, 0.4, "measuring loudness"))
+    gains = track_gains(list(tracks), prog(0.0, 0.1, "levelling the songs"))
+    audio_graph = mix_graph(n, 0, cf, total, fade_in, fade_out, gains)
+    m = measure_loudness(list(tracks), audio_graph, total, prog(0.1, 0.4, "measuring loudness"))
 
-    graph = mix_graph(n, 1, cf, total, fade_in, fade_out) + (
+    graph = mix_graph(n, 1, cf, total, fade_in, fade_out, gains) + (
         f";[mix]loudnorm=I={TARGET_LUFS}:TP={TARGET_TP}:LRA={TARGET_LRA}"
         f":measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}"
         f":measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true[out]")

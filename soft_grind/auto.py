@@ -133,7 +133,7 @@ def run(job_path: str) -> None:
             fields, parts, c, by_ai = texts.compose(
                 quote=m["quote"], tracks=tracks, mood=mood, topic=list(topic), image_description=analysis.get("description", ""),
                 playlist_name=m.get("playlist_name", ""), scenario=m.get("scenario", ""), crossfade=spec.get("crossfade", 4.0), idx=idx,
-                previous=texts.previous_parts(root, exclude=name), ai_client=ai_client)
+                previous=texts.previous_parts(root, exclude=name), ai_client=ai_client, sound=projects.sound_of(pdir))
             projects.add_cost(name, "ai", c, False)
             with PICK_LOCK:
                 m2 = projects.meta(pdir)

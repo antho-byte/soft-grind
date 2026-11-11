@@ -37,7 +37,7 @@ def generate_music(pdir: Path, spec: dict, token: str, note, task_started, reque
         note(label)
         styles = spec.get("styles") or [spec["style"]]
         style = styles[(i + offset) % len(styles)]                     # several sounds: the requests take turns
-        tid = client.generate(f"{style}, {scene}", scene, spec["model"], int(spec["minutes"] * 60), brand.NEGATIVE_TAGS)
+        tid = client.generate(f"{style}, {brand.SCENE_SOUND.get(scene, scene)}", scene, spec["model"], int(spec["minutes"] * 60), brand.NEGATIVE_TAGS)
         task_started(tid)                                              # saved at once, so a crash never loses paid work
         if not spec.get("mock"):
             projects.add_cost(pdir.name, "music", brand.CREDITS["suno_request"], True)   # paid as soon as the request is accepted

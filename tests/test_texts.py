@@ -33,7 +33,7 @@ def test_ai_text_keeps_quote_first_and_fixed_parts():
     fields, parts, cost, by_ai = _compose(_client())
     assert by_ai and cost == 0.01 and fields["title"] == "listen to the rain. | japanese city pop for deep focus"
     d = fields["description"]
-    assert d.startswith("listen to the rain. soft rain, steady pages.") and "00:00 track 0" in d and "#citypop" in d and "not affiliated" in d
+    assert d.startswith("listen to the rain. soft rain, steady pages.") and "00:00 track 0" in d and "#citypop" in d and "made with AI tools" in d
     assert fields["pinned"] == "what are you working on tonight?" and "grey rainy window" in H.seen[0] and "track 0" in H.seen[0]
 
 def test_empty_suffix_gives_quote_only_title():
@@ -123,3 +123,19 @@ def test_auto_fit_and_video_picture_with_headline():
     assert plain.size == with_h.size == (1920, 1080) and plain.tobytes() != with_h.tobytes()
     th = T.render_thumbnail(im, "night shift.")
     assert th.resize((1920, 1080)).getpixel((960, 230)) != plain.getpixel((960, 230)) or True   # same design family, rendered at the video size
+
+
+
+def test_tags_and_description_follow_the_sound_and_scenes():
+    from soft_grind import brand, metadata
+    jazz, funk = "japanese jazz (calm, ~78 bpm)", "city pop funk (groovy, ~100 bpm)"
+    a = metadata.make_tags(sound=jazz, scenes=["rainy window"]); b = metadata.make_tags(sound=funk, scenes=["neon city walk"])
+    assert "japanese jazz" in a and "rainy day music" in a and "city pop funk" in b and a != b
+    assert sum(len(t) + 1 for t in a) <= 500 and a[:3] == ["city pop", "japanese city pop", "lofi"]
+    tracks = [{"title": f"t{i}", "duration": 200} for i in range(4)]
+    d = metadata.make_description("lock in.", "one task at a time.", "scene.", tracks, "work", "?", "#calm", sound=jazz, ai_line=True)
+    lines = d.splitlines()
+    assert lines[0] == "lock in. one task at a time." and "japanese jazz" in lines[1]          # what it is, in the first two lines
+    assert brand.AI_LINE in d and "Tatsuro" not in d and d.split()[-5] == "#japanesejazz"
+    assert brand.NO_AI_LINE in metadata.make_description("q.", "s.", "x.", tracks, "w", "?", "#calm", ai_line=False)
+    assert brand.sound_of(brand.PRESETS[jazz]) == jazz and brand.sound_of("my own words with slap bass") == funk

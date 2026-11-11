@@ -37,6 +37,22 @@ SCENES = [
     "palm trees and highway", "night shift", "slow sunday", "open laptop",
 ]
 
+# What each scene should SOUND like: Suno understands sound words far better than a bare scene name.
+SCENE_SOUND = {
+    "late night desk lamp": "late night mood, intimate and close, soft muted keys, slow and warm",
+    "rainy window": "rainy day mood, soft rain ambience in the background, mellow and reflective",
+    "morning train ride": "gentle forward motion, steady light groove, fresh morning feeling",
+    "poolside sunset": "golden hour warmth, breezy and sunlit, relaxed summer groove",
+    "neon city walk": "night city glow, shimmering synth pads, smooth walking groove",
+    "quiet library": "quiet and focused, sparse arrangement, soft dynamics, room to think",
+    "rooftop at dusk": "dusk sky, wide airy pads, unhurried and open",
+    "coffee shop corner": "cosy cafe warmth, light brushed groove, round bass",
+    "palm trees and highway": "open road, sunny 80s drive, bright and easy groove",
+    "night shift": "after hours, steady focused pulse, deep warm bass",
+    "slow sunday": "lazy sunday, very relaxed, soft and spacious",
+    "open laptop": "productive and steady, clean focused groove, light and modern",
+}
+
 MODELS = ["chirp-v5-5", "chirp-v5", "chirp-v4-5"]
 
 # ---- YouTube ----
@@ -48,7 +64,41 @@ TAGS_BASE = [
 HASHTAGS_BASE = ["#citypop", "#lofi", "#studymusic", "#workmusic"]
 MOODS = {"calm": "#calm", "groovy": "#groovy", "late night": "#nightvibes", "sunset": "#sunset"}
 
-# Inspired-by artists: title/description only, never tags. Rotate.
+# What each sound is called in the description and which search words fit it (tags and the first hashtag vary per video).
+SOUND_INFO = {
+    "lofi soul (calm, ~70 bpm)": ("instrumental lofi soul and japanese city pop", ["lofi", "lofi soul", "chill beats", "lofi study", "rhodes"], "#lofi"),
+    "japanese jazz (calm, ~78 bpm)": ("instrumental japanese jazz and city pop", ["japanese jazz", "jazz for study", "smooth jazz", "jazz fusion",
+                                                                                  "late night jazz"], "#japanesejazz"),
+    "city pop funk (groovy, ~100 bpm)": ("instrumental 80s japanese city pop funk", ["city pop funk", "80s funk", "japanese funk",
+                                                                                     "groovy city pop", "80s japan"], "#citypop"),
+}
+SCENE_TAGS = {
+    "late night desk lamp": ["late night study music", "night lofi"], "rainy window": ["rainy day music", "rain lofi"],
+    "morning train ride": ["morning music", "commute music"], "poolside sunset": ["sunset music", "summer city pop"],
+    "neon city walk": ["night city music", "tokyo night"], "quiet library": ["library study music", "quiet study music"],
+    "rooftop at dusk": ["evening chill music", "dusk lofi"], "coffee shop corner": ["coffee shop music", "cafe music"],
+    "palm trees and highway": ["drive music", "80s summer"], "night shift": ["night shift music", "late night work music"],
+    "slow sunday": ["sunday morning music", "slow sunday"], "open laptop": ["coding music", "productivity music"],
+}
+
+
+def sound_of(style: str) -> str:
+    """The preset name a style prompt came from ('' when it was written by hand or improved by the AI)."""
+    for name, prompt in PRESETS.items():
+        if style.strip() == prompt:
+            return name
+    s = style.lower()
+    if "jazz" in s:
+        return "japanese jazz (calm, ~78 bpm)"
+    if "funk" in s or "slap bass" in s:
+        return "city pop funk (groovy, ~100 bpm)"
+    return "lofi soul (calm, ~70 bpm)" if "lofi" in s else ""
+
+
+AI_LINE = "music made with AI tools, chosen, edited and mixed by soft grind."
+NO_AI_LINE = "original instrumentals in the style of 80s japanese city pop."
+
+# Old: inspired-by artists. No longer used in new texts (real artist names in AI-music metadata can count as misleading).
 ARTISTS = [
     "Tatsuro Yamashita", "Masayoshi Takanaka", "Toshiki Kadomatsu", "Casiopea", "T-Square",
     "Hiroshi Sato", "Mariya Takeuchi", "Anri", "Miki Matsubara", "Omega Tribe",

@@ -17,8 +17,8 @@ def test_flow():
     ts = metadata.timestamps([t["duration"] for t in tracks])
     assert ts[0] == 0 and abs(ts[1] - (tracks[0]["duration"] - 4)) < 1e-6
     assert len(playlist.tracks_from_folder(d / "tracks")) == 6
-    desc = metadata.make_description("q.", "s.", "scene.", tracks, "work", "Anri", "?", "#calm")
-    assert "00:00 scene 0" in desc and "not affiliated" in desc and "suno" not in desc.lower()
+    desc = metadata.make_description("q.", "s.", "scene.", tracks, "work", "?", "#calm")
+    assert "00:00 scene 0" in desc and "made with AI tools" in desc and "suno" not in desc.lower()
     assert metadata.validate("t", tracks[:2], "ok") and not metadata.validate("t", tracks, "ok")
     assert metadata.validate("t", tracks, "静かな")  # japanese in pinned comment flagged
     im = Image.new("RGB", (1920, 1080), (90, 90, 200))

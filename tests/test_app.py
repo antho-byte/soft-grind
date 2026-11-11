@@ -84,7 +84,7 @@ def test_new_video_gets_its_own_headline_and_background_music_works():
     pd = settings.projects_dir() / name
     assert wait(lambda: projects.job_status(pd)["state"] == "done")
     at.run(); assert len(projects.audio_files(pd / "tracks")) == 8 and len(at.session_state["tracks"]) == 8
-    assert any("the tracks" in m.value for m in at.markdown)                       # the old playlist page now lives on this tab
+    assert any("the songs" in m.value for m in at.markdown)                       # the old playlist page now lives on this tab
 
 
 def test_whole_video_from_the_popover_form_and_getting_started_card():
@@ -293,3 +293,19 @@ def test_shorts_card_makes_shorts_from_the_video_page():
     assert wait(lambda: shorts.status(p)["state"] in ("done", "failed"), 120), shorts.status(p)
     assert shorts.status(p)["state"] == "done" and len(shorts.listing(p)) == 1
     at.run(); assert not at.exception and [b for b in at.button if b.key == "sh_make_mix-001"][0].label == "make the shorts again"
+
+
+def test_songs_can_be_removed_and_reordered_on_the_music_tab():
+    settings, projects = home()
+    from soft_grind.suno import _write_tone
+    p = settings.projects_dir() / "mix-001"; (p / "tracks").mkdir(parents=True)
+    for k, n in enumerate(("rain", "lamp", "train")):
+        _write_tone(p / "tracks" / f"0{k+1} - {n}.wav", 3, 220 + 40 * k)
+    at = open_app("music", "mix-001")
+    assert any("make more songs" in e.label for e in at.expander)                     # songs exist: the generator folds away
+    click(at, "rm_1")                                                                  # remove 'lamp'
+    names_ = [f.name for f in projects.audio_files(p / "tracks")]
+    assert names_ == ["01 - rain.wav", "02 - train.wav"] and (p / "tracks" / "removed" / "02 - lamp.wav").exists()
+    click(at, "dn_0")                                                                  # rain moves down
+    assert [f.name for f in projects.audio_files(p / "tracks")] == ["01 - train.wav", "02 - rain.wav"]
+    assert projects.meta(p).get("songs_changed")

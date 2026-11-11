@@ -106,3 +106,12 @@ def save_keys(suno: str, image: str, ai: str = "", ai_model: str = "", platform:
         KEYS_FILE.chmod(0o600)  # owner-only on Mac/Linux; ignored on Windows
     except OSError:
         pass
+
+
+def ai_disclosure() -> bool:
+    """Say in every new description that the music is made with AI tools (on unless the owner switched it off)."""
+    return bool(_read_settings().get("ai_disclosure", True))
+
+
+def set_ai_disclosure(on: bool) -> None:
+    _write_settings(ai_disclosure=bool(on))

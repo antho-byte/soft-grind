@@ -55,6 +55,12 @@ def meta(pdir: Path) -> dict:
     return read_json(Path(pdir) / META)
 
 
+def sound_of(pdir: Path) -> str:
+    """The sound preset of a video (the first one when several were mixed), for its text and tags."""
+    m = meta(pdir)
+    return (m.get("sound") or "").split(" + ")[0] or brand.sound_of(m.get("style") or "")
+
+
 def film_look(pdir: Path) -> dict | None:
     """The film look for this video: its own choice if it has one (an empty choice means 'off'), else the default, else None."""
     from . import settings as _s, video as _v

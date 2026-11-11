@@ -87,11 +87,13 @@ def template_parts(idx: int, topic: list[str], previous: dict[str, list[str]]) -
 
 
 def compose(*, quote: str, tracks: list[dict], mood: str, topic: list[str], image_description: str, playlist_name: str,
-            scenario: str, crossfade: float, idx: int, previous: dict[str, list[str]], ai_client=None) -> tuple[dict, dict, float, bool]:
+            scenario: str, crossfade: float, idx: int, previous: dict[str, list[str]], ai_client=None, sound: str = "",
+            ai_line: bool | None = None) -> tuple[dict, dict, float, bool]:
     """Returns (fields, parts, credits, written_by_ai). fields = title/description/tags/pinned ready for the video page."""
     parts, cost, by_ai, feedback = None, 0.0, False, ""
     if ai_client is not None:
         ctx = {"quote": quote, "image": image_description, "mood": mood, "scenes": list(topic), "tracks": [t["title"] for t in tracks],
+               "sound": brand.SOUND_INFO.get(sound, ("instrumental japanese city pop and lofi",))[0],
                "length": metadata.length_phrase(metadata.total_length([t["duration"] for t in tracks], crossfade))}
         for _ in range(2):                                           # one rewrite if the rules are not met
             try:
@@ -107,9 +109,12 @@ def compose(*, quote: str, tracks: list[dict], mood: str, topic: list[str], imag
                 feedback = f"{e.__class__.__name__}: {e}"
     if parts is None:
         parts = template_parts(idx, topic, previous)
-    artist = brand.ARTISTS[idx % len(brand.ARTISTS)]
+    if ai_line is None:
+        from . import settings
+        ai_line = settings.ai_disclosure()
     fields = {"title": metadata.make_title("quote", quote, suffix=parts["suffix"]),
               "description": metadata.make_description(quote, parts["subline"], parts["scene_text"], tracks, "working and studying",
-                                                       artist, parts["question"], brand.MOODS["groovy" if mood == "groovy" else "calm"], crossfade),
-              "tags": ", ".join(metadata.make_tags()), "pinned": parts["pinned"]}
+                                                       parts["question"], brand.MOODS["groovy" if mood == "groovy" else "calm"], crossfade,
+                                                       sound=sound, ai_line=ai_line),
+              "tags": ", ".join(metadata.make_tags(sound=sound, scenes=topic)), "pinned": parts["pinned"]}
     return fields, parts, cost, by_ai

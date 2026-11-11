@@ -511,6 +511,11 @@ if step == "settings":
             st.caption("Off. Turn it on to get a message on your phone when a video is ready, needs you, or stops. Free, no account.")
     with st.container(key="card_youtube"):
         st.markdown("**youtube**")
+        disc = st.toggle("say in new descriptions that the music is made with AI tools", value=settings.ai_disclosure(), key="ai_disclosure",
+                         help="Recommended: being open about it protects the channel if YouTube's rules on AI music get stricter. "
+                              "Off: the line says 'original instrumentals in the style of 80s japanese city pop'.")
+        if disc != settings.ai_disclosure():
+            settings.set_ai_disclosure(disc)
         if youtube.connected():
             st.markdown('<span class="sg-chk">✓</span> connected. Finished videos can be uploaded from the video tab.', unsafe_allow_html=True)
             if st.button("disconnect youtube"):
@@ -955,7 +960,9 @@ if step == "projects":
                         st.rerun()
 
 if step == "music":
-    with st.container(key="card_music"):
+    _has_songs = bool(projects.audio_files(tracks_dir)) and not projects.job_status(pdir)["running"]
+    with (st.expander(f"make more songs for this video ({len(projects.audio_files(tracks_dir))} now)") if _has_songs
+          else st.container(key="card_music")):
             c1, c2 = st.columns(2)
             preset = c1.selectbox("sound", list(brand.PRESETS))
             model = c2.selectbox("model", brand.MODELS)
@@ -1001,9 +1008,8 @@ if step == "music":
             st.session_state["_scenes_hint"] = scenes
             n_req = n_tracks // 2
             mood_key = "groovy" if "groovy" in preset else "calm"
-            st.info(f"{n_req} requests → {n_req * 2} tracks. Suno's own download cap (Pro 20/mo, Premier 60/mo) "
-                    "does not apply to the API, but AceDataCloud charges per request." if not mock else
-                    "mock mode: creates short test tones so you can try the rest of the app for free.")
+            st.caption(f"{n_req} requests → {n_req * 2} songs · ≈ {n_req * brand.CREDITS['suno_request']:.1f} credits" if not mock else
+                       "practice mode: makes short test tones so you can try the rest of the app for free.")
             name_style = st.selectbox("track names", names.STYLES, help="mix = english and romanised japanese, e.g. “drizzle study” and “mado no ame”")
             job0 = projects.job_status(pdir)
             if st.button("generate in the background", type="primary", disabled=job0["running"] or not (mock or token)):
@@ -1022,10 +1028,11 @@ if step == "music":
 
 if step == "music":
     with st.container(key="card_playlist"):
-            st.markdown("**the tracks**")
-            st.caption("Replaces the usesuno.com step: paste your published playlist, or import a folder you already downloaded.")
-            src = st.radio("get tracks from", ["suno playlist link", "song links", "local folder"], horizontal=True)
+            st.markdown("**the songs**")
+            imp = st.expander("import songs (a Suno playlist link, song links, or a folder)")
+            src = imp.radio("get songs from", ["suno playlist link", "song links", "local folder"], horizontal=True)
             try:
+              with imp:
                 if src == "suno playlist link":
                     url = st.text_input("published playlist url (suno.com/playlist/…)")
                     if st.button("fetch playlist", disabled=not url):
@@ -1064,17 +1071,52 @@ if step == "music":
                         st.session_state["names_v"] = nv + 1
                         st.rerun()
                     st.caption("Every click gives a fresh set. You can still edit any name by hand below.")
-                st.write(f"**{len(tracks)} tracks · {metadata.length_phrase(metadata.total_length([t['duration'] for t in tracks], crossfade))}**")
+                st.write(f"**{len(tracks)} songs · {metadata.length_phrase(metadata.total_length([t['duration'] for t in tracks], crossfade))}**")
+                inside = all(Path(t["path"]).parent.resolve() == tracks_dir.resolve() for t in tracks)
+
+                def reorder(i, j):
+                    tr = st.session_state["tracks"]
+                    tr[i], tr[j] = tr[j], tr[i]
+                    playlist.rename_files(tr, tracks_dir)
+                    projects.set_meta(pdir, songs_changed=time.time())
+                    st.session_state["names_v"] = st.session_state.get("names_v", 0) + 1
+
+                def remove(i):
+                    tr = st.session_state["tracks"]
+                    p_ = Path(tr[i]["path"]); out = tracks_dir / "removed"; out.mkdir(exist_ok=True)
+                    p_.replace(out / p_.name)                                     # kept aside, never deleted
+                    del tr[i]
+                    playlist.rename_files(tr, tracks_dir)
+                    projects.set_meta(pdir, songs_changed=time.time())
+                    st.session_state["names_v"] = st.session_state.get("names_v", 0) + 1
+                    st.session_state["_reload"] = True
+
+                changed = False
                 for i, t in enumerate(tracks):
-                    a, b, c, d = st.columns([0.07, 0.45, 0.1, 0.38])
-                    a.write(f"{i + 1:02d}")
-                    t["title"] = b.text_input("title", t["title"], key=f"t{st.session_state.get('names_v', 0)}_{i}{t.get('id')}", label_visibility="collapsed").lower()
-                    c.write(metadata.fmt_ts(t["duration"]))
-                    d.audio(t["path"])
-                if st.button("save these titles to the files"):
+                    with st.container(key=f"trackrow_{i}"):
+                        a, b, c, d, e = st.columns([0.06, 0.4, 0.08, 0.34, 0.12], vertical_alignment="center")
+                        a.markdown(f'<span class="sg-proj-meta">{i + 1:02d}</span>', unsafe_allow_html=True)
+                        new_t = b.text_input("title", t["title"], key=f"t{st.session_state.get('names_v', 0)}_{i}{t.get('id')}",
+                                             label_visibility="collapsed").lower()
+                        if new_t != t["title"]:
+                            t["title"], changed = new_t, True
+                        c.markdown(f'<span class="sg-proj-meta">{metadata.fmt_ts(t["duration"])}</span>', unsafe_allow_html=True)
+                        d.audio(t["path"])
+                        if inside:
+                            with e.popover("⋯", width="stretch"):
+                                st.button("move up", key=f"up_{i}", disabled=i == 0, on_click=reorder, args=(i, i - 1), width="stretch")
+                                st.button("move down", key=f"dn_{i}", disabled=i == len(tracks) - 1, on_click=reorder, args=(i, i + 1),
+                                          width="stretch")
+                                st.button("remove this song", key=f"rm_{i}", on_click=remove, args=(i,), width="stretch",
+                                          help="For a song with vocals, a glitch or a bad ending. It moves to tracks/removed, it is not deleted.")
+                if changed and inside:                                            # names are saved as you type
                     playlist.rename_files(tracks, tracks_dir)
-                    st.success("saved: the titles are kept in the file names")
-                st.caption("Track titles here feed the tracklist; edit them freely. Order = playback order.")
+                removed = sorted((tracks_dir / "removed").glob("*")) if (tracks_dir / "removed").is_dir() else []
+                st.caption("Titles are saved as you type and feed the tracklist. The order here is the order in the video."
+                           + (f" · {len(removed)} removed song{'s' if len(removed) != 1 else ''} in tracks/removed" if removed else ""))
+                if (pdir / "video.mp4").exists() and projects.meta(pdir).get("songs_changed", 0) > (pdir / "video.mp4").stat().st_mtime:
+                    st.warning("The songs changed after the video was made. Make the video again (video tab) and let the AI or the "
+                               "template rewrite the tracklist in the description.")
 
 if step == "library":
     lib_dir = settings.library_dir()
@@ -1393,7 +1435,6 @@ if step == "video":
                 scene = st.text_area("scene + mood (2–3 sentences)", "a quiet desk, a warm lamp and the city glowing outside. "
                                      "slow, soft grooves that keep you company while you work.", height=110)
                 use = st.text_input("for…", "working and studying")
-                artist = st.selectbox("inspired by (title/description only)", brand.ARTISTS, index=len(tracks) % len(brand.ARTISTS))
                 mood = st.selectbox("mood hashtag", list(brand.MOODS))
                 question = st.selectbox("question to viewers", brand.DESCRIPTION_QUESTIONS)
                 pinned_choice = st.selectbox("pinned comment", brand.PINNED_COMMENTS)
@@ -1409,9 +1450,9 @@ if step == "video":
                               quote_placeholder=saved.get("quote_placeholder", False) and quote_m == saved.get("quote"))
             saved = projects.meta(pdir)
         gen = {"title": metadata.make_title(tstyle, quote_m, pl, sc, emoji),
-               "description": metadata.make_description(quote_m, subline_m, scene, tracks, use, artist, question,
-                                                        brand.MOODS[mood], crossfade) if tracks else "",
-               "tags": ", ".join(metadata.make_tags()), "pinned": pinned_choice}
+               "description": metadata.make_description(quote_m, subline_m, scene, tracks, use, question, brand.MOODS[mood], crossfade,
+                                                        sound=projects.sound_of(pdir), ai_line=settings.ai_disclosure()) if tracks else "",
+               "tags": ", ".join(metadata.make_tags(sound=projects.sound_of(pdir), scenes=saved.get("topic") or [])), "pinned": pinned_choice}
         vkey = f"_text_v_{name}"
         if st.session_state.pop("_regen_req", None) == name:       # "write it for me": new widgets, filled with fresh text
             seed_new = gen
@@ -1421,7 +1462,7 @@ if step == "video":
                     quote=quote_m, tracks=tracks, mood=saved.get("mood") or "calm", topic=saved.get("topic") or brand.SCENES[:4],
                     image_description=an_.get("description", ""), playlist_name=pl, scenario=sc, crossfade=crossfade,
                     idx=len(projects.project_dirs(PROJECTS)), previous=texts.previous_parts(PROJECTS, exclude=name),
-                    ai_client=ai.AIClient(ai_token, ai_model))
+                    ai_client=ai.AIClient(ai_token, ai_model), sound=projects.sound_of(pdir))
                 projects.set_meta(pdir, text_parts=parts_, text_by_ai=by_ai_)
                 projects.add_cost(name, "ai", cost_, False)
                 st.toast(("written by the AI" + (f" · {cost_:.3f} credits" if cost_ else "")) if by_ai_ else

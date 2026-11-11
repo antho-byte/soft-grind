@@ -52,27 +52,36 @@ def make_title(style: str, quote: str, playlist: str = "", scenario: str = "", e
     return f"{playlist} you're {scenario} {emoji} 80s city pop"
 
 
-def make_tags(extra: list[str] | None = None, limit: int = 500) -> list[str]:
+def make_tags(extra: list[str] | None = None, limit: int = 500, sound: str = "", scenes=()) -> list[str]:
+    """The core channel tags plus words for THIS video's sound and scenes, so not every video has the same tags."""
+    own = list(brand.SOUND_INFO.get(sound, ("", [], ""))[1])
+    for s in scenes:
+        own += brand.SCENE_TAGS.get(s, [])
+    core = ["city pop", "japanese city pop", "lofi", "study music", "work music", "focus music"]
+    rest = [t for t in brand.TAGS_BASE if t not in core]
     tags, size = [], 0
-    for t in brand.TAGS_BASE + (extra or []):
+    for t in core + own + (extra or []) + rest:
         if t not in tags and size + len(t) + 1 <= limit:
             tags.append(t); size += len(t) + 1
     return tags
 
 
 def make_description(quote: str, subline: str, scene: str, tracks: list[dict], use: str,
-                     artist: str, question: str, mood_tag: str, crossfade: float = CROSSFADE) -> str:
+                     question: str, mood_tag: str, crossfade: float = CROSSFADE, sound: str = "", ai_line: bool = True) -> str:
+    """The first two lines show in search and above 'more': the headline, then what this is (genre, length, for what)."""
     total = total_length([t["duration"] for t in tracks], crossfade)
+    genre, _, first_tag = brand.SOUND_INFO.get(sound, ("instrumental japanese city pop and lofi", [], "#citypop"))
+    tags = list(dict.fromkeys([first_tag] + brand.HASHTAGS_BASE + [mood_tag]))      # the first three show above the title
     return (
-        f"{quote} {subline}".strip() + "\n\n"
-        f"{scene.strip()} {length_phrase(total)} of instrumental japanese city pop and lofi for {use}.\n\n"
+        f"{quote} {subline}".strip() + "\n"
+        f"{length_phrase(total)} of {genre} for {use}.\n\n"
+        f"{scene.strip()}\n\n"
         "put it on, open the laptop, get into it.\n\n"
         f"tracklist\n{tracklist_text(tracks, crossfade)}\n\n"
         f"{question}\n\n"
         "soft grind. 静かな努力 (quiet effort)\n"
-        f"original music inspired by 80s japanese city pop and artists like {artist}. "
-        f"not affiliated with or made by {artist}.\n\n"
-        + " ".join(brand.HASHTAGS_BASE + [mood_tag])
+        f"{brand.AI_LINE if ai_line else brand.NO_AI_LINE}\n\n"
+        + " ".join(tags[:5])
     )
 
 

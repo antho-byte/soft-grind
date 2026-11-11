@@ -135,3 +135,25 @@ def test_render_queue_makes_each_video_in_turn(monkeypatch, tmp_path):
     queue.run(str(projects.queue_file("render")))
     assert (ps[0] / "video.mp4").exists() and (ps[1] / "video.mp4").exists() and not (ps[2] / "video.mp4").exists()
     assert projects.render_status(ps[1])["state"] == "done"
+
+
+def test_every_song_is_brought_to_the_same_level_before_mixing(tmp_path):
+    """A quiet song and a loud song end up within ~1 LU of each other in the finished mix."""
+    import numpy as np, wave
+    def tone(path, amp, freq, secs=8, rate=44100):
+        t = np.arange(int(secs * rate)) / rate
+        s = (amp * np.sin(2 * np.pi * freq * t) * 32767).astype("<i2")
+        with wave.open(str(path), "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(s.tobytes())
+    quiet, loud = tmp_path / "01 - quiet.wav", tmp_path / "02 - loud.wav"
+    tone(quiet, 0.15, 330); tone(loud, 0.6, 440)
+    g = video.track_gains([quiet, loud])
+    assert g[0] > 3 and g[1] < 0                                        # the quiet one goes up, the loud one down
+    assert (tmp_path / ".levels.json").exists() and video.track_gains([quiet, loud]) == g     # measured once, then cached
+    Image.new("RGB", (1920, 1080), (40, 40, 120)).save(tmp_path / "still.png")
+    out = video.render_video([quiet, loud], tmp_path / "still.png", tmp_path / "v.mp4", [8, 8], crossfade=0.5, fade_in=0, fade_out=0)
+    def part_lufs(start, dur):
+        r = subprocess.run([video.ffmpeg_exe(), "-hide_banner", "-nostats", "-ss", str(start), "-t", str(dur), "-i", str(out),
+                            "-af", "ebur128", "-f", "null", "-"], capture_output=True, text=True)
+        return float(re.findall(r"I:\s+(-?\d+\.\d) LUFS", r.stderr)[-1])
+    assert abs(part_lufs(1, 5) - part_lufs(9.5, 5)) < 1.5               # before levelling these were ~12 LU apart

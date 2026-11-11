@@ -72,7 +72,8 @@ class AIClient:
 
     def write_video_text(self, context: dict, previous: dict, feedback: str = "") -> tuple[str, float]:
         """Raw JSON text for title phrase / subline / scene text / pinned comment / question."""
-        lines = [f"quote (stays in the title as it is): {context['quote']}", f"image: {context.get('image') or 'not described'}",
+        lines = [f"quote (stays in the title as it is): {context['quote']}", f"sound: {context.get('sound') or 'japanese city pop and lofi'}",
+                 f"image: {context.get('image') or 'not described'}",
                  f"mood: {context['mood']}", f"scenes: {', '.join(context.get('scenes', [])) or 'any'}",
                  f"length: {context.get('length', '')}", f"some track names: {', '.join(context.get('tracks', [])[:8])}"]
         for key, label in (("suffix", "title phrases"), ("subline", "sublines"), ("scene_text", "scene texts"),
@@ -137,10 +138,13 @@ TEXT_SYSTEM = (
     "(students, remote workers, freelancers, night owls). Voice: lowercase, short, warm, ends on a full stop; encouraging, never "
     "hustle-bro (never use grind, hustle, crush, rise, no days off). Every video must read differently from the previous ones. "
     "Reply with ONLY a JSON object with these keys: "
-    "title_suffix (a short search phrase that follows the quote in the title, at most 36 characters, lowercase, may be an empty string; "
-    "it should help people find calm city pop, lofi, japanese music for work or study; no artist names; no < or >), "
+    "title_suffix (a short search phrase that follows the quote in the title, at most 36 characters, lowercase; it must contain at "
+    "least one phrase people really search for that fits the given sound, e.g. 'lofi', 'city pop', 'japanese jazz', 'study music', "
+    "'chill beats', 'music for work', 'focus music', '80s funk'; good: 'japanese jazz to study to', 'city pop for late night work', "
+    "'lofi beats for deep focus'; no artist names; no < or >), "
     "subline (3 to 8 words, ends with a full stop), "
-    "scene_text (2 or 3 sentences describing the scene and mood of THIS video using the image description, the scenes and a track name or two; "
+    "scene_text (2 or 3 sentences describing the scene and mood of THIS video using the image description, the scenes, the sound and a "
+    "track name or two; concrete and sensory, not generic; "
     "no artist names, never mention AI or Suno, no japanese characters), "
     "pinned_comment (one friendly question inviting viewers to share what they are working on, at most 110 characters, no japanese characters), "
     "question (one different question for the end of the description, at most 90 characters)."
