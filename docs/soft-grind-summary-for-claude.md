@@ -43,6 +43,18 @@ Suno music → playlist → thumbnail → video → YouTube text → planning �
 - **Data lives outside the app folder** in `~/soft-grind-data` (override with env `SOFTGRIND_HOME`): keys, settings, image library index,
   credits ledger, queues; projects in `projects/<mix-NNN>/` (tracks, images, thumbnail.png, still.png, video.mp4, shorts/, project.json, upload.txt).
 
+### Latest round (Nov 2026): quality, efficiency, Apple-like redesign
+- Every song is levelled to −16 LUFS before mixing (cached per file), then the whole mix to −14 LUFS; songs can be removed
+  (moved to tracks/removed) or reordered on the music tab.
+- Suno prompts describe each scene as *sound* (`brand.SCENE_SOUND`) instead of the bare scene name.
+- YouTube text knows the video's sound (lofi soul / japanese jazz / city pop funk): genre in the first two description lines,
+  tags vary per video (sound + scenes), first hashtag per sound; no real artist names; optional honest line
+  "music made with AI tools, chosen, edited and mixed by soft grind." (setting, default on).
+- **Review mode**: steps through finished videos (preview, thumbnail, editable title/description), approve → upload queue.
+- Settings in tabs; the setup check only runs when asked. Cover tab: headline + "pick from your list" + size/position up front, the rest under "more".
+- Redesign: overview tiles on the videos page (this week's upload days as a ring, ready, being made, credits), sidebar with icons,
+  capsule buttons (solid indigo = main action, tinted = secondary, text = small actions), filled inputs, segmented tabs, softer cards.
+
 ### Pages (sidebar menu)
 1. **videos** — one card per video with cover, headline, status pill, schedule, and **two buttons**: the *next step*
    (make the music / make the cover / make the video / write the text / upload to YouTube / open in YouTube Studio) and *open video*.
