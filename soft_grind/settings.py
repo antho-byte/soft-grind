@@ -11,6 +11,7 @@ DATA_DIR = Path(os.getenv("SOFTGRIND_HOME") or Path.home() / "soft-grind-data")
 KEYS_FILE = DATA_DIR / "keys.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 DEFAULT_PROJECTS = DATA_DIR / "projects"
+APP_DIR = Path(__file__).resolve().parent.parent          # the folder with app.py (wherever it was moved to)
 
 
 LIBRARY_FILE = DATA_DIR / "library.json"
@@ -36,9 +37,27 @@ def _write_settings(**kw) -> None:
 
 
 def projects_dir() -> Path:
-    """Where projects are saved: the folder chosen in the app, else <data folder>/projects."""
+    """Where projects are saved: the folder chosen in the app, else <data folder>/projects.
+    If the chosen folder is gone but the app folder (which moved, e.g. to the Desktop) has its own 'projects'
+    folder with videos in it, that one is used and remembered: the videos moved along with the app."""
     chosen = _read_settings().get("projects_dir")
-    return Path(chosen) if chosen else DEFAULT_PROJECTS
+    if not chosen:
+        return DEFAULT_PROJECTS
+    p = Path(chosen)
+    here = APP_DIR / "projects"
+    if not p.exists() and p.name == "projects" and here.is_dir() and here != p and any(here.iterdir()):
+        _write_settings(projects_dir=str(here), projects_moved_from=str(p))
+        return here
+    return p
+
+
+def projects_moved_note() -> str:
+    """Once, after the app found its projects in a new place: where they were before."""
+    cfg = _read_settings()
+    old = cfg.get("projects_moved_from", "")
+    if old:
+        _write_settings(projects_moved_from="")
+    return old
 
 
 def library_dir() -> Path | None:

@@ -33,6 +33,9 @@ if not security.password_hash() and str(st.get_option("server.address") or "") n
     st.error("The password was removed while other devices could still connect. Close this window and start the app again.")
     st.stop()
 PROJECTS = settings.projects_dir()
+_moved_from = settings.projects_moved_note()
+if _moved_from:
+    st.toast(f"Found your videos in the moved app folder: {PROJECTS}", icon=":material/folder_open:")
 SAVED = settings.load_keys()
 
 MENU = [("projects", "videos"), ("planning", "planning"), ("library", "images"), ("settings", "settings")]
@@ -1199,6 +1202,9 @@ if step == "library":
         library_panel()
     if not lib_dir:
         st.info("Choose the folder with your images above.")
+    elif not lib_dir.is_dir():
+        st.warning(f"The images folder {lib_dir} can't be found. Was it moved? Paste its new place above and press use this folder. "
+                   "Images the app already looked at are remembered.")
     elif not lib_files:
         st.warning(f"No images found in {lib_dir}.")
     else:

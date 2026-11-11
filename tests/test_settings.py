@@ -33,3 +33,18 @@ def test_projects_folder_and_move():
     assert (new / "mix-002" / "other.txt").read_text() == "keep" and (old / "mix-002" / "thumbnail.png").exists()  # nothing lost
     assert settings.move_projects(old, old) == ([], [])
     assert settings.move_projects(old, old / "inner")[1]                              # refuses to move into itself
+
+
+def test_projects_follow_the_app_folder_when_it_is_moved(monkeypatch, tmp_path):
+    """The owner moved the whole app folder (with its 'projects' folder) to the Desktop: the videos are found there."""
+    os.environ["SOFTGRIND_HOME"] = str(tmp_path / "data")
+    from soft_grind import settings; importlib.reload(settings)
+    new_app = tmp_path / "Desktop" / "soft-grind"; (new_app / "projects" / "mix-001").mkdir(parents=True)
+    (new_app / "projects" / "mix-001" / "project.json").write_text("{}")
+    monkeypatch.setattr(settings, "APP_DIR", new_app)
+    settings._write_settings(projects_dir=str(tmp_path / "Documents" / "soft-grind" / "projects"))      # where it used to be
+    assert settings.projects_dir() == new_app / "projects"
+    assert settings._read_settings()["projects_dir"] == str(new_app / "projects")                      # remembered from now on
+    assert settings.projects_moved_note().endswith("projects") and settings.projects_moved_note() == ""  # told once
+    settings._write_settings(projects_dir=str(tmp_path / "elsewhere" / "videos"))                       # a folder of its own choosing:
+    assert settings.projects_dir() == tmp_path / "elsewhere" / "videos"                                 # never redirected
