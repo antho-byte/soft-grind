@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -402,6 +403,40 @@ def prepare_auto(pdir: Path, spec: dict, message: str = "queued") -> None:
     prev = read_json(pdir / AUTO)                                     # keep the list of paid requests across a resume
     write_json(pdir / AUTO, {"state": "queued", "spec": spec, "step": 0, "progress": 0.0, "message": message, "updated": time.time(),
                              "task_ids": prev.get("task_ids", []), "done_tasks": prev.get("done_tasks", [])})
+
+
+# ---------- compilation: a new, longer video from the songs of earlier ones (no new music to pay for) ----------
+def create_compilation(root: Path, sources: list[Path], max_songs: int = 40) -> str:
+    """A new project whose songs are copies of the songs of `sources`, in order. Returns its name."""
+    import shutil
+    from collections import Counter
+    root = Path(root)
+    nm = create_project(root)
+    pdir = root / nm
+    tdir = pdir / "tracks"; tdir.mkdir(parents=True, exist_ok=True)
+    k, seen, topics, moods, used = 0, set(), [], [], []
+    for src in map(Path, sources):
+        m = meta(src)
+        topics += [t for t in (m.get("topic") or []) if t not in topics]
+        moods.append(m.get("mood") or "calm")
+        files = audio_files(src / "tracks")
+        if files:
+            used.append(src.name)
+        for f in files:
+            if k >= max_songs:
+                break
+            title = re.sub(r"^\d+\s*[-_.]\s*", "", f.stem).strip().lower() or f.stem
+            if title in seen:
+                continue
+            seen.add(title); k += 1
+            shutil.copyfile(f, tdir / f"{k:02d} - {title}{f.suffix}")
+    if not k:
+        trash_project(pdir)
+        raise RuntimeError("These videos have no songs left to use.")
+    first = meta(Path(sources[0]))
+    set_meta(pdir, topic=topics[:5] or meta(pdir).get("topic"), mood=Counter(moods).most_common(1)[0][0],
+             style=first.get("style", ""), sound=first.get("sound", ""), compilation_of=used)
+    return nm
 
 
 # ---------- batch: several whole videos in one go ----------

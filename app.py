@@ -881,6 +881,27 @@ if step == "projects":
                              help="Made one after another, so the computer stays usable."):
                     run_queue("render", mk); st.rerun()
                 with c3.popover("more", width="stretch"):
+                    n_songs_ = sum(len(projects.audio_files(i["path"] / "tracks")) for i in sel)
+                    if st.button(f"make a compilation of {len(sel)} videos ({min(n_songs_, 40)} songs)", width="stretch", key="bulk_comp",
+                                 disabled=len(sel) < 2 or n_songs_ < 3, icon=":material/library_music:",
+                                 help="A new, longer video from the songs of these videos: no new music to pay for. It gets its own "
+                                      "picture, headline, text and the next free upload slot. Use it now and then (for example a "
+                                      "3-hour mix once a month): too many look repetitive to YouTube."):
+                        try:
+                            ordered = sorted(sel, key=lambda i: i["name"])
+                            nm_ = projects.create_compilation(PROJECTS, [i["path"] for i in ordered])
+                            n_tr = len(projects.audio_files(PROJECTS / nm_ / "tracks"))
+                            pm_c = projects.meta(PROJECTS / nm_)
+                            projects.start_auto(PROJECTS / nm_, {"style": pm_c.get("style") or brand.PRESETS[list(brand.PRESETS)[0]],
+                                                                 "scenes": pm_c.get("topic") or brand.SCENES[:4], "n_req": max(1, n_tr // 2),
+                                                                 "minutes": 6.0, "model": brand.MODELS[0], "mood_key": pm_c.get("mood", "calm"),
+                                                                 "mock": mock, "use_ai": bool(ai_token and not ai_mock), "ai_model": ai_model,
+                                                                 "crossfade": crossfade, "fade_in": 3.0, "fade_out": 6.0, "plan": True,
+                                                                 "shorts": 2}, token, ai_token if (ai_token and not ai_mock) else "")
+                            for i in sel: st.session_state.pop(f"sel_{i['name']}", None)
+                            st.toast(f"making {nm_}: {n_tr} songs, no new music to pay for"); st.rerun()
+                        except RuntimeError as e:
+                            st.error(str(e))
                     if st.button("film dust on", width="stretch", key="bulk_dust_on"):
                         for i in sel: projects.set_meta(i["path"], film_look=dict(video.LOOK_DEFAULT))
                         st.toast("film dust on: used the next time each video is made"); st.rerun()

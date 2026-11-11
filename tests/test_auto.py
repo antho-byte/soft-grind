@@ -123,3 +123,29 @@ def test_continuing_collects_paid_songs_instead_of_paying_again(tmp_path, monkey
     assert calls["generate"] == 2                                     # 3 wanted: 1 collected, the expired one asked anew
     assert calls["wait"][:2] == ["paid-1", "gone"] and "paid-1" in done and "gone" in done
     assert len(list((tmp_path / "tracks").iterdir())) == 6
+
+
+def test_compilation_reuses_songs_and_never_buys_music(monkeypatch):
+    settings, library, projects = _env(); _library(settings, library)
+    from soft_grind import auto, suno, brand
+    from soft_grind.suno import _write_tone
+    root = settings.projects_dir(); root.mkdir(parents=True, exist_ok=True)
+    srcs = []
+    for n, titles in (("mix-001", ["rain", "lamp"]), ("mix-002", ["train", "rain", "dusk", "moon"])):
+        p = root / n; (p / "tracks").mkdir(parents=True)
+        for k, t in enumerate(titles): _write_tone(p / "tracks" / f"0{k+1} - {t}.wav", 3, 220 + 30 * k)
+        projects.set_meta(p, topic=["rainy window"], mood="calm", quote=f"{n}.")
+        srcs.append(p)
+    nm = projects.create_compilation(root, srcs)
+    files = [f.name for f in projects.audio_files(root / nm / "tracks")]
+    assert files == ["01 - rain.wav", "02 - lamp.wav", "03 - train.wav", "04 - dusk.wav", "05 - moon.wav"]   # never the same song twice
+    assert projects.meta(root / nm)["compilation_of"] == ["mix-001", "mix-002"]
+    def no_music(*a, **k): raise AssertionError("a compilation must not order new music")
+    monkeypatch.setattr(suno.SunoClient, "generate", no_music)
+    pd = root / nm
+    projects.prepare_auto(pd, {"style": brand.PRESETS[list(brand.PRESETS)[0]], "scenes": ["rainy window"], "n_req": max(1, len(files) // 2),
+                               "minutes": 6.0, "model": "m", "mood_key": "calm", "mock": True, "crossfade": 0.5, "fade_in": 0.5,
+                               "fade_out": 0.5, "plan": True})
+    auto.run(str(pd / projects.AUTO))                                          # 5 songs: the odd one out must not trigger a purchase
+    st = projects.auto_status(pd); assert st["state"] == "done", st
+    assert (pd / "video.mp4").exists() and projects.meta(pd)["title"] and len(projects.audio_files(pd / "tracks")) == 5

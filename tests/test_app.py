@@ -361,3 +361,23 @@ def test_shorts_page_makes_clips_in_bulk_and_ticks_off_posts(monkeypatch):
     pl = [x for x in at.get("button_group") if x.key and x.key.startswith("sh_post_")][0]
     pl.set_value(["tiktok"]); at.run(); assert not at.exception
     assert sum(1 for p in ("mix-001", "mix-002") for r in shorts.listing(root / p) if "tiktok" in r.get("posted", {})) == 1
+
+
+def test_compilation_button_makes_a_new_video_from_selected_ones(monkeypatch):
+    settings, projects = home()
+    spawned = []
+    monkeypatch.setattr(projects, "_spawn", lambda m, w, j, env=None: spawned.append(m))
+    from soft_grind.suno import _write_tone
+    root = settings.projects_dir()
+    for n in ("mix-001", "mix-002"):
+        p = root / n; (p / "tracks").mkdir(parents=True)
+        for k in range(3): _write_tone(p / "tracks" / f"0{k+1} - {n}-{k}.wav", 2, 220 + 30 * k)
+        Image.new("RGB", (1280, 720)).save(p / "thumbnail.png"); projects.set_meta(p, quote=f"{n}.")
+    at = open_app()
+    for n in ("mix-001", "mix-002"):
+        [c for c in at.checkbox if c.key == f"sel_{n}"][0].check(); at.run()
+    b = [x for x in at.button if x.key == "bulk_comp"][0]; assert "2 videos (6 songs)" in b.label
+    b.click(); at.run(); assert not at.exception
+    new = [p for p in projects.project_dirs(root) if p.name not in ("mix-001", "mix-002")][0]
+    assert len(projects.audio_files(new / "tracks")) == 6 and spawned == ["soft_grind.auto"]
+    assert projects.read_json(new / projects.AUTO)["spec"]["n_req"] == 3                       # 6 songs = 3 requests: none to buy
